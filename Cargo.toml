@@ -1,7 +1,8 @@
 [package]
-name = "piecetree"
+name = "piecetable"
 version = "0.1.0"
 authors = ["Andreas From <andro.from@gmail.com>"]
 
 [dev-dependencies]
 quickcheck = "*"
+rand = "0.3"

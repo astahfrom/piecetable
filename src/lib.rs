@@ -1,5 +1,6 @@
-#[cfg(test)]
-extern crate quickcheck;
+#![feature(test)]
+
+extern crate test;
 
 use std::iter::Iterator;
 
@@ -12,16 +13,15 @@ enum Buffer {
     Original,
 }
 
-// TODO: possibly return Piece also
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone)]
 enum Location {
     PieceHead(usize),
     PieceMid(usize, usize),
-    PieceTail(usize),
+    PieceTail(usize, usize),
     EOF,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Piece {
     start: usize,
     length: usize,
@@ -29,21 +29,22 @@ struct Piece {
 }
 
 #[derive(Debug)]
-pub struct PieceTree<'a, T: 'a> {
+pub struct PieceTable<'a, T: 'a> {
     original: &'a [T],
     adds: Vec<T>,
-    pieces: Vec<Piece>, // TODO: should be a tree
+    pieces: Vec<Piece>,
+    reusable_piece: Option<(usize, usize)>,
 }
 
 pub struct Iter<'a, T: 'a> {
-    piecetree: &'a PieceTree<'a, T>,
+    table: &'a PieceTable<'a, T>,
     idx: usize,
     piece_idx: usize,
 }
 
-impl<'a, T: 'a> PieceTree<'a, T> {
+impl<'a, T: 'a> PieceTable<'a, T> {
 
-    pub fn new(src: &'a [T]) -> PieceTree<'a, T> {
+    pub fn new(src: &'a [T]) -> PieceTable<'a, T> {
         let mut pieces = Vec::new();
         pieces.push(Piece {
             start: 0,
@@ -51,26 +52,36 @@ impl<'a, T: 'a> PieceTree<'a, T> {
             buffer: Original,
         });
 
-        PieceTree {
+        PieceTable {
             original: src,
             adds: Vec::new(),
             pieces: pieces,
+            reusable_piece: None,
         }
     }
 
     pub fn iter(&'a self) -> Iter<'a, T> {
         Iter {
-            piecetree: &self,
+            table: &self,
             idx: 0,
             piece_idx: 0,
         }
     }
 
-    // TODO: inserts a single T, providing batch insert can probably be faster
-    // Also, reusing pieces.
-    // TODO: delete 0-length pieces
-    // TODO: clean this up
     pub fn insert(&mut self, idx: usize, item: T) {
+        match self.reusable_piece {
+            Some((last_idx, piece_idx)) if idx == last_idx+1 => {
+                let piece = self.pieces.get_mut(piece_idx).unwrap();
+                assert_eq!(piece.start+piece.length, self.adds.len());
+                self.adds.push(item);
+                piece.length += 1;
+                self.reusable_piece= Some((idx, piece_idx));
+            }
+            _ => self.raw_insert(idx, item),
+        }
+    }
+
+    fn raw_insert(&mut self, idx: usize, item: T) {
         let item_idx = self.adds.len();
         self.adds.push(item);
 
@@ -81,15 +92,13 @@ impl<'a, T: 'a> PieceTree<'a, T> {
                     length: 1,
                     buffer: Add,
                 });
-            },
-            PieceMid(piece_idx, _) | PieceTail(piece_idx) => {
-                let piece_length: usize;
-                let piece_buffer: Buffer;
 
+                self.reusable_piece = Some((idx, piece_idx));
+            },
+            PieceMid(piece_idx, norm_idx) | PieceTail(piece_idx, norm_idx) => {
+                let orig = self.pieces[piece_idx].clone();
                 if let Some(piece) = self.pieces.get_mut(piece_idx) {
-                    piece_length = piece.length;
-                    piece_buffer = piece.buffer;
-                    piece.length = idx - piece.start;
+                    piece.length = norm_idx;
                 } else {
                     panic!("find_piece_idx returned invalid index.");
                 }
@@ -100,18 +109,24 @@ impl<'a, T: 'a> PieceTree<'a, T> {
                     buffer: Add,
                 });
 
+                self.reusable_piece = Some((idx, piece_idx+1));
+
                 self.pieces.insert(piece_idx+2, Piece {
-                    start: idx,
-                    length: piece_length - idx,
-                    buffer: piece_buffer,
+                    start: orig.start + norm_idx,
+                    length: orig.length - norm_idx,
+                    buffer: orig.buffer,
                 });
             },
             EOF => {
+                let piece_idx = self.pieces.len();
+
                 self.pieces.push(Piece {
                     start: item_idx,
                     length: 1,
                     buffer: Add,
                 });
+
+                self.reusable_piece = Some((idx, piece_idx));
             }
         }
     }
@@ -134,7 +149,7 @@ impl<'a, T: 'a> PieceTree<'a, T> {
                     self.pieces.remove(piece_idx);
                 }
             },
-            PieceTail(piece_idx) => {
+            PieceTail(piece_idx, _) => {
                 let remove: bool;
                 if let Some(piece) = self.pieces.get_mut(piece_idx) {
                     piece.length -= 1;
@@ -175,14 +190,12 @@ impl<'a, T: 'a> PieceTree<'a, T> {
 impl<'a, T> Iterator for Iter<'a, T> {
     type Item = &'a T;
 
-    // TODO: this can be optimized
-    // TODO: this doesn't handle lengths right now
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(piece) = self.piecetree.pieces.get(self.piece_idx) {
+        if let Some(piece) = self.table.pieces.get(self.piece_idx) {
 
             let buffer = match piece.buffer {
-                Add => std::borrow::Borrow::borrow(&self.piecetree.adds),
-                Original => self.piecetree.original,
+                Add => std::borrow::Borrow::borrow(&self.table.adds),
+                Original => self.table.original,
             };
 
             let ret = buffer.get(piece.start + self.idx);
@@ -210,7 +223,7 @@ fn find_piece_idx(pieces: &[Piece], idx: usize) -> Location {
         if idx >= offset && idx < offset + piece.length {
             return match idx - offset {
                 0 => PieceHead(i),
-                delta if delta == piece.length-1 => PieceTail(i),
+                delta if delta == piece.length-1 => PieceTail(i, delta),
                 delta => PieceMid(i, delta),
             };
         }
@@ -221,75 +234,110 @@ fn find_piece_idx(pieces: &[Piece], idx: usize) -> Location {
     EOF
 }
 
+// Benchmarks don't work in the tests directory
 #[cfg(test)]
 mod tests {
-    use quickcheck::quickcheck;
+    use super::*;
+    use test::Bencher;
 
-    use super::PieceTree;
+    const N: i32 = 1000;
 
-    // Note: These also implicitly test the iterator.
+    #[bench]
+    fn table_iter_original(b: &mut Bencher) {
+        let src: Vec<i32> = (0..N).collect();
+        let table = PieceTable::new(&src);
 
-    #[test]
-    fn insert() {
-        fn prop(xs: Vec<i32>) -> bool {
-            let mut expected = Vec::with_capacity(xs.len());
-            let mut tree = PieceTree::new(&[]);
-
-            for (i, &x) in xs.iter().enumerate() {
-                expected.insert(i, x);
-                tree.insert(i, x);
-            }
-
-            expected.iter().collect::<Vec<&i32>>() ==
-                tree.iter().collect::<Vec<&i32>>()
-        }
-
-        quickcheck(prop as fn(Vec<i32>) -> bool);
+        b.iter(|| table.iter().fold(0, |acc, &x| acc + x))
     }
 
-    #[test]
-    fn remove() {
-        fn prop(src: Vec<i32>, indices: Vec<u8>) -> bool {
-            let mut expected = src.clone();
-            let mut tree = PieceTree::new(&src);
+    #[bench]
+    fn table_iter_inserted_linear(b: &mut Bencher) {
+        let src: Vec<i32> = (0..N).collect();
+        let mut table = PieceTable::new(&[]);
 
-            for &i in indices.iter() {
-                if (i as usize) < expected.len() {
-                    expected.remove(i as usize);
-                    tree.remove(i as usize);
-                }
-            }
-
-
-            expected.iter().collect::<Vec<&i32>>() ==
-                tree.iter().collect::<Vec<&i32>>()
+        for (i, &x) in src.iter().enumerate() {
+            table.insert(i, x);
         }
 
-        quickcheck(prop as fn(Vec<i32>, Vec<u8>) -> bool);
+        b.iter(|| table.iter().fold(0, |acc, &x| acc + x));
     }
 
-    #[test]
-    fn insert_remove() {
-        fn prop(xs: Vec<i32>, indices: Vec<u8>) -> bool {
-            let mut expected = Vec::with_capacity(xs.len());
-            let mut tree = PieceTree::new(&[]);
+    #[bench]
+    fn vec_iter(b: &mut Bencher) {
+        let src: Vec<i32> = (0..N).collect();
 
-            for (i, &x) in xs.iter().enumerate() {
-                expected.insert(i, x);
-                tree.insert(i, x);
+        b.iter(|| src.iter().fold(0, |acc, &x| acc + x));
+    }
+
+    // TODO: benchmark remove
+
+    #[bench]
+    fn table_insert_original(b: &mut Bencher) {
+        let src: Vec<i32> = (0..N).collect();
+
+        b.iter(|| {
+            let mut table = PieceTable::new(&src);
+            table.insert(N as usize +1, N+1);
+        })
+    }
+
+    #[bench]
+    fn table_insert_linear(b: &mut Bencher) {
+        b.iter(|| {
+            let mut table = PieceTable::new(&[]);
+            for (i, x) in (0..N).enumerate() {
+                table.insert(i, x);
             }
+        });
+    }
 
-            for &i in indices.iter() {
-                if (i as usize) < expected.len() {
-                    expected.remove(i as usize);
-                    tree.remove(i as usize);
-                }
+    #[bench]
+    fn vec_insert_linear(b: &mut Bencher) {
+        b.iter(|| {
+            let mut vec = Vec::with_capacity(N as usize);
+            for (i, x) in (0..N).enumerate() {
+                vec.insert(i, x);
             }
+        });
+    }
 
-            expected.iter().collect::<Vec<&i32>>() ==
-                tree.iter().collect::<Vec<&i32>>()
+    fn scattered_insert_indices(max: usize) -> Vec<usize> {
+        let mut indices: Vec<usize> = Vec::with_capacity(max);
+
+        for i in (1..max) {
+            if i % 2 == 0 {
+                indices.push(i / 2);
+            } else {
+                indices.push(i / 3);
+            }
         }
 
-        quickcheck(prop as fn(Vec<i32>, Vec<u8>) -> bool);
+        indices
+    }
+
+    #[bench]
+    fn table_insert_scattered(b: &mut Bencher) {
+        let src: Vec<i32> = (0..N).collect();
+        let indices = scattered_insert_indices(src.len());
+
+        b.iter(|| {
+            let mut table = PieceTable::new(&[]);
+            for (&i, &x) in indices.iter().zip(src.iter()) {
+                table.insert(i, x);
+            }
+        })
+    }
+
+    #[bench]
+    fn vec_insert_scattered(b: &mut Bencher) {
+        let src: Vec<i32> = (0..N).collect();
+        let indices = scattered_insert_indices(src.len()-1);
+
+        b.iter(|| {
+            let mut vec = Vec::with_capacity(src.len());
+            for (&i, &x) in indices.iter().zip(src.iter()) {
+                vec.insert(i, x);
+            }
+        })
     }
 }
