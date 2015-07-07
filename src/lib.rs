@@ -3,6 +3,7 @@
 extern crate test;
 
 use std::iter::Iterator;
+use std::ops::Index;
 
 use Buffer::*;
 use Location::*;
@@ -40,31 +41,55 @@ pub struct Iter<'a, T: 'a> {
     table: &'a PieceTable<'a, T>,
     idx: usize,
     piece_idx: usize,
+    buffer: &'a [T],
+    piece: Option<&'a Piece>,
 }
 
 impl<'a, T: 'a> PieceTable<'a, T> {
 
-    pub fn new(src: &'a [T]) -> PieceTable<'a, T> {
-        let mut pieces = Vec::new();
-        pieces.push(Piece {
-            start: 0,
-            length: src.len(),
-            buffer: Original,
-        });
-
+    pub fn new() -> PieceTable<'a, T> {
         PieceTable {
-            original: src,
+            original: &[],
             adds: Vec::new(),
-            pieces: pieces,
+            pieces: Vec::new(),
             reusable_piece: None,
         }
     }
 
+    pub fn src(mut self, src: &'a [T]) -> PieceTable<'a, T> {
+        let mut pieces = Vec::new();
+        if src.len() > 0 {
+            pieces.push(Piece {
+                start: 0,
+                length: src.len(),
+                buffer: Original,
+            });
+        }
+
+        self.original = src;
+        self.pieces = pieces;
+
+        self
+    }
+
     pub fn iter(&'a self) -> Iter<'a, T> {
+        let buffer: &'a [T];
+
+        if let Some(piece) = self.pieces.get(0) {
+            buffer = match piece.buffer {
+                Add => std::borrow::Borrow::borrow(&self.adds),
+                Original => self.original,
+            };
+        } else {
+            buffer = &[];
+        }
+
         Iter {
             table: &self,
             idx: 0,
             piece_idx: 0,
+            buffer: buffer,
+            piece: self.pieces.get(0),
         }
     }
 
@@ -72,7 +97,6 @@ impl<'a, T: 'a> PieceTable<'a, T> {
         match self.reusable_piece {
             Some((last_idx, piece_idx)) if idx == last_idx+1 => {
                 let piece = self.pieces.get_mut(piece_idx).unwrap();
-                assert_eq!(piece.start+piece.length, self.adds.len());
                 self.adds.push(item);
                 piece.length += 1;
                 self.reusable_piece= Some((idx, piece_idx));
@@ -85,7 +109,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
         let item_idx = self.adds.len();
         self.adds.push(item);
 
-        match find_piece_idx(&self.pieces, idx) {
+        match self.idx_to_location(idx) {
             PieceHead(piece_idx) => {
                 self.pieces.insert(piece_idx, Piece {
                     start: item_idx,
@@ -132,9 +156,11 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     }
 
     // TODO: don't know if we want to return the deleted item
-    // TODO: possibly delete range
+    // TODO: optimize continous deletes
     pub fn remove(&mut self, idx: usize) {
-        match find_piece_idx(&self.pieces, idx) {
+        self.reusable_piece = None;
+
+        match self.idx_to_location(idx) {
             PieceHead(piece_idx) => {
                 let remove: bool;
                 if let Some(piece) = self.pieces.get_mut(piece_idx) {
@@ -185,53 +211,68 @@ impl<'a, T: 'a> PieceTable<'a, T> {
             EOF => {},
         }
     }
+
+    fn idx_to_location(&self, idx: usize) -> Location {
+        let mut offset = 0;
+        for (i, piece) in self.pieces.iter().enumerate() {
+            if idx >= offset && idx < offset + piece.length {
+                return match idx - offset {
+                    0 => PieceHead(i),
+                    delta if delta == piece.length-1 => PieceTail(i, delta),
+                    delta => PieceMid(i, delta),
+                };
+            }
+
+            offset += piece.length;
+        }
+
+        EOF
+    }
 }
 
 impl<'a, T> Iterator for Iter<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(piece) = self.table.pieces.get(self.piece_idx) {
-
-            let buffer = match piece.buffer {
-                Add => std::borrow::Borrow::borrow(&self.table.adds),
-                Original => self.table.original,
-            };
-
-            let ret = buffer.get(piece.start + self.idx);
+        self.piece.map(|piece| {
+            let ret = self.buffer.get(piece.start + self.idx).unwrap();
 
             self.idx += 1;
             if self.idx >= piece.length {
                 self.idx = 0;
                 self.piece_idx += 1;
-            }
+                self.piece = self.table.pieces.get(self.piece_idx);
 
-            if ret.is_none() {
-                return self.next();
+                self.buffer = match piece.buffer {
+                    Add => &self.table.adds,
+                    Original => self.table.original,
+                };
             }
 
             ret
-        } else {
-            None
-        }
+        })
     }
 }
 
-fn find_piece_idx(pieces: &[Piece], idx: usize) -> Location {
-    let mut offset = 0;
-    for (i, piece) in pieces.iter().enumerate() {
-        if idx >= offset && idx < offset + piece.length {
-            return match idx - offset {
-                0 => PieceHead(i),
-                delta if delta == piece.length-1 => PieceTail(i, delta),
-                delta => PieceMid(i, delta),
-            };
+// TODO: iter_mut, move
+
+impl<'a, T> Index<usize> for PieceTable<'a, T> {
+    type Output = T;
+
+    fn index<'b>(&'b self, idx: usize) -> &'b T {
+        let (piece_idx, norm_idx) = match self.idx_to_location(idx) {
+            PieceHead(piece_idx) => (piece_idx, 0),
+            PieceMid(piece_idx, norm_idx) |
+            PieceTail(piece_idx, norm_idx) => (piece_idx, norm_idx),
+            EOF => panic!("PieceTable out of bounds: {}", idx),
+        };
+
+        let ref piece = self.pieces[piece_idx];
+        match piece.buffer {
+            Add => &self.adds[piece.start + norm_idx],
+            Original => &self.original[piece.start + norm_idx],
         }
-
-        offset += piece.length;
     }
-
-    EOF
 }
 
 // Benchmarks don't work in the tests directory
@@ -240,31 +281,17 @@ mod tests {
     use super::*;
     use test::Bencher;
 
-    const N: i32 = 1000;
-
     #[bench]
-    fn table_iter_original(b: &mut Bencher) {
-        let src: Vec<i32> = (0..N).collect();
-        let table = PieceTable::new(&src);
+    fn given_10k_iter_table(b: &mut Bencher) {
+        let src: Vec<i32> = (0..10_000).collect();
+        let table = PieceTable::new().src(&src);
 
         b.iter(|| table.iter().fold(0, |acc, &x| acc + x))
     }
 
     #[bench]
-    fn table_iter_inserted_linear(b: &mut Bencher) {
-        let src: Vec<i32> = (0..N).collect();
-        let mut table = PieceTable::new(&[]);
-
-        for (i, &x) in src.iter().enumerate() {
-            table.insert(i, x);
-        }
-
-        b.iter(|| table.iter().fold(0, |acc, &x| acc + x));
-    }
-
-    #[bench]
-    fn vec_iter(b: &mut Bencher) {
-        let src: Vec<i32> = (0..N).collect();
+    fn given_10k_iter_vec(b: &mut Bencher) {
+        let src: Vec<i32> = (0..10_000).collect();
 
         b.iter(|| src.iter().fold(0, |acc, &x| acc + x));
     }
@@ -272,43 +299,75 @@ mod tests {
     // TODO: benchmark remove
 
     #[bench]
-    fn table_insert_original(b: &mut Bencher) {
-        let src: Vec<i32> = (0..N).collect();
+    fn given_10k_insert_last_table(b: &mut Bencher) {
+        let src: Vec<i32> = (0..10_000).collect();
 
         b.iter(|| {
-            let mut table = PieceTable::new(&src);
-            table.insert(N as usize +1, N+1);
+            let mut table = PieceTable::new().src(&src);
+            table.insert(10_000, 42);
         })
     }
 
     #[bench]
-    fn table_insert_linear(b: &mut Bencher) {
+    fn given_10k_insert_last_vec(b: &mut Bencher) {
+        // Note: not entirely fair, because this vec will grow.
+        let mut vec: Vec<i32> = (0..10_000).collect();
+
         b.iter(|| {
-            let mut table = PieceTable::new(&[]);
-            for (i, x) in (0..N).enumerate() {
+            vec.push(42);
+        })
+    }
+
+    #[bench]
+    fn given_10k_insert_first_table(b: &mut Bencher) {
+        let src: Vec<i32> = (0..10_000).collect();
+
+        b.iter(|| {
+            let mut table = PieceTable::new().src(&src);
+            table.insert(0, 42);
+        })
+    }
+
+    #[bench]
+    fn given_10k_insert_first_vec(b: &mut Bencher) {
+        let mut vec: Vec<i32> = (0..10_000).collect();
+
+        b.iter(|| {
+            vec.insert(0, 42);
+        })
+    }
+
+    #[bench]
+    fn empty_insert_10k_linear_table(b: &mut Bencher) {
+        b.iter(|| {
+            let mut table = PieceTable::new();
+            for (i, x) in (0..10_000).enumerate() {
                 table.insert(i, x);
             }
         });
     }
 
     #[bench]
-    fn vec_insert_linear(b: &mut Bencher) {
+    fn empty_insert_10k_linear_vec(b: &mut Bencher) {
         b.iter(|| {
-            let mut vec = Vec::with_capacity(N as usize);
-            for (i, x) in (0..N).enumerate() {
+            let mut vec = Vec::new();
+            for (i, x) in (0..10_000).enumerate() {
                 vec.insert(i, x);
             }
         });
     }
 
-    fn scattered_insert_indices(max: usize) -> Vec<usize> {
+    fn clustered_insert_indices(clusters: usize, cluster_size: usize) -> Vec<usize> {
+        let max = clusters * cluster_size;
         let mut indices: Vec<usize> = Vec::with_capacity(max);
+        let mut offset = 0;
 
-        for i in (1..max) {
-            if i % 2 == 0 {
-                indices.push(i / 2);
-            } else {
-                indices.push(i / 3);
+        for i in (0..max) {
+            let rem = i % cluster_size;
+            indices.push(rem + offset);
+
+            if rem == cluster_size - 1 {
+                offset = i / (rem + offset);
             }
         }
 
@@ -316,28 +375,53 @@ mod tests {
     }
 
     #[bench]
-    fn table_insert_scattered(b: &mut Bencher) {
-        let src: Vec<i32> = (0..N).collect();
-        let indices = scattered_insert_indices(src.len());
+    fn empty_insert_100_clusters_of_100_table(b: &mut Bencher) {
+        let indices = clustered_insert_indices(100, 100);
 
         b.iter(|| {
-            let mut table = PieceTable::new(&[]);
-            for (&i, &x) in indices.iter().zip(src.iter()) {
-                table.insert(i, x);
+            let mut table = PieceTable::new();
+            for &i in indices.iter() {
+                table.insert(i, 42);
             }
+        });
+    }
+
+    #[bench]
+    fn empty_insert_100_clusters_of_100_vec(b: &mut Bencher) {
+        let indices = clustered_insert_indices(100, 100);
+
+        b.iter(|| {
+            let mut vec = Vec::new();
+            for &i in indices.iter() {
+                vec.insert(i, 42);
+            }
+        });
+    }
+
+    #[bench]
+    fn given_10k_index_sum_table(b: &mut Bencher) {
+        let src: Vec<i32> = (0..10_000).collect();
+        let table = PieceTable::new().src(&src);
+
+        b.iter(|| {
+            let mut sum = 0;
+            for i in (0..src.len()) {
+                sum += table[i];
+            }
+            sum
         })
     }
 
     #[bench]
-    fn vec_insert_scattered(b: &mut Bencher) {
-        let src: Vec<i32> = (0..N).collect();
-        let indices = scattered_insert_indices(src.len()-1);
+    fn given_10k_index_sum_vec(b: &mut Bencher) {
+        let vec: Vec<i32> = (0..10_000).collect();
 
         b.iter(|| {
-            let mut vec = Vec::with_capacity(src.len());
-            for (&i, &x) in indices.iter().zip(src.iter()) {
-                vec.insert(i, x);
+            let mut sum = 0;
+            for i in (0..vec.len()) {
+                sum += vec[i];
             }
+            sum
         })
     }
 }

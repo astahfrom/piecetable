@@ -1,8 +1,11 @@
+#![feature(plugin)]
+#![plugin(quickcheck_macros)]
+
 extern crate piecetable;
 extern crate quickcheck;
 extern crate rand;
 
-use quickcheck::{quickcheck, Arbitrary, Gen};
+use quickcheck::{Arbitrary, Gen};
 use rand::Rng;
 
 use piecetable::PieceTable;
@@ -59,61 +62,94 @@ impl<T: Arbitrary> Arbitrary for RemoveWithIndices<T> {
     }
 }
 
-#[test]
-fn insert() {
-    fn prop(recipe: InsertWithIndices<i32>) -> bool {
-        let mut expected = Vec::with_capacity(recipe.data.len());
-        let mut table = PieceTable::new(&[]);
+#[quickcheck]
+fn insert(recipe: InsertWithIndices<i32>) -> bool {
+    let mut expected = Vec::with_capacity(recipe.data.len());
+    let mut table = PieceTable::new();
 
-        for (&i, &x) in recipe.indices.iter().zip(recipe.data.iter()) {
-            expected.insert(i, x);
-            table.insert(i, x);
-        }
-
-        expected.iter().collect::<Vec<&i32>>() ==
-            table.iter().collect::<Vec<&i32>>()
+    for (&i, &x) in recipe.indices.iter().zip(recipe.data.iter()) {
+        expected.insert(i, x);
+        table.insert(i, x);
     }
 
-    quickcheck(prop as fn(InsertWithIndices<i32>) -> bool);
+    expected.iter().collect::<Vec<&i32>>() ==
+        table.iter().collect::<Vec<&i32>>()
+}
+
+#[quickcheck]
+fn remove(recipe: RemoveWithIndices<i32>) -> bool {
+    let mut expected = recipe.data.clone();
+    let mut table = PieceTable::new().src(&recipe.data);
+
+    for &i in recipe.indices.iter() {
+        expected.remove(i);
+        table.remove(i);
+    }
+
+    expected.iter().collect::<Vec<&i32>>() ==
+        table.iter().collect::<Vec<&i32>>()
+}
+
+#[quickcheck]
+fn insert_and_remove(xs: Vec<i32>) -> bool {
+    let mut expected = Vec::with_capacity(xs.len());
+    let mut table = PieceTable::new();
+
+    for (i, &x) in xs.iter().enumerate() {
+        expected.insert(i / 2, x);
+        table.insert(i / 2, x);
+
+        if i % 2 == 0 {
+            expected.remove(i / 3);
+            table.remove(i / 3);
+        }
+    }
+
+    expected.iter().collect::<Vec<&i32>>() ==
+        table.iter().collect::<Vec<&i32>>()
 }
 
 #[test]
-fn remove() {
-    fn prop(recipe: RemoveWithIndices<i32>) -> bool {
-        let mut expected = recipe.data.clone();
-        let mut table = PieceTable::new(&recipe.data);
+fn insert_linear_then_remove() {
+    let mut table = PieceTable::new();
 
-        for &i in recipe.indices.iter() {
-            expected.remove(i);
-            table.remove(i);
-        }
+    table.insert(0, 1);
+    table.insert(1, 2);
+    table.insert(2, 3);
 
-        expected.iter().collect::<Vec<&i32>>() ==
-            table.iter().collect::<Vec<&i32>>()
-    }
+    table.insert(1, 27);
 
-    quickcheck(prop as fn(RemoveWithIndices<i32>) -> bool);
+    table.insert(4, 4);
+    table.insert(5, 5);
+
+    table.remove(1);
+
+    table.insert(6, 6);
+
+    assert_eq!(vec![&1, &2, &3, &4, &5, &6],
+               table.iter().collect::<Vec<&i32>>());
+
 }
 
-#[test]
-fn insert_and_remove() {
-    fn prop(xs: Vec<i32>) -> bool {
-        let mut expected = Vec::with_capacity(xs.len());
-        let mut table = PieceTable::new(&[]);
+#[quickcheck]
+fn indexing(recipe: InsertWithIndices<i32>) -> bool {
+    let mut table = PieceTable::new();
+    let mut expected = Vec::with_capacity(recipe.data.len());
 
-        for (i, &x) in xs.iter().enumerate() {
-            expected.insert(i / 2, x);
-            table.insert(i / 2, x);
+    for (&i, &x) in recipe.indices.iter().zip(recipe.data.iter()) {
+        expected.insert(i, x);
+        table.insert(i, x);
 
-            if i % 2 == 0 {
-                expected.remove(i / 3);
-                table.remove(i / 3);
-            }
+        if table[i] != x {
+            return false;
         }
-
-        expected.iter().collect::<Vec<&i32>>() ==
-            table.iter().collect::<Vec<&i32>>()
     }
 
-    quickcheck(prop as fn(Vec<i32>) -> bool);
+    for i in (0..expected.len()) {
+        if table[i] != expected[i] {
+            return false;
+        }
+    }
+
+    true
 }

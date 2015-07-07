@@ -19,7 +19,7 @@ fn main() {
     let src: Vec<i32> = (0..100).collect();
     let indices = scattered_insert_indices(src.len());
 
-    let mut table = PieceTable::new(&[]);
+    let mut table = PieceTable::new();
     for (&i, &x) in indices.iter().zip(src.iter()) {
         table.insert(i, x);
     }
