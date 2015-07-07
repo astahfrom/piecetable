@@ -153,3 +153,14 @@ fn indexing(recipe: InsertWithIndices<i32>) -> bool {
 
     true
 }
+
+// TODO: make generator for ranges to test this properly
+#[test]
+fn ranges() {
+    let src = (0..10).collect::<Vec<i32>>();
+    let table = PieceTable::new().src(&src);
+
+    assert_eq!(vec![&0, &1, &2, &3, &4], table.range(0, 5).collect::<Vec<&i32>>());
+
+    assert_eq!(vec![&7, &8, &9], table.range(7, 10).collect::<Vec<&i32>>());
+}

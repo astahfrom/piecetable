@@ -42,7 +42,11 @@ pub struct Iter<'a, T: 'a> {
     idx: usize,
     piece_idx: usize,
     buffer: &'a [T],
-    piece: Option<&'a Piece>,
+}
+
+pub struct Range<'a, T: 'a> {
+    iter: Iter<'a, T>,
+    to: usize,
 }
 
 impl<'a, T: 'a> PieceTable<'a, T> {
@@ -72,10 +76,11 @@ impl<'a, T: 'a> PieceTable<'a, T> {
         self
     }
 
-    pub fn iter(&'a self) -> Iter<'a, T> {
+    // This is a bit messy, but idx_to_location is expensive, so don't want to run it for regular iter when net necessary.
+    fn make_iter(&'a self, piece_idx: usize) -> Iter<'a, T> {
         let buffer: &'a [T];
 
-        if let Some(piece) = self.pieces.get(0) {
+        if let Some(piece) = self.pieces.get(piece_idx) {
             buffer = match piece.buffer {
                 Add => std::borrow::Borrow::borrow(&self.adds),
                 Original => self.original,
@@ -87,9 +92,30 @@ impl<'a, T: 'a> PieceTable<'a, T> {
         Iter {
             table: &self,
             idx: 0,
-            piece_idx: 0,
+            piece_idx: piece_idx,
             buffer: buffer,
-            piece: self.pieces.get(0),
+        }
+    }
+
+    pub fn iter(&'a self) -> Iter<'a, T> {
+        self.make_iter(0)
+    }
+
+    pub fn range(&'a self, from: usize, to: usize) -> Range<'a, T> {
+        let piece_idx = match self.idx_to_location(from) {
+            PieceHead(piece_idx) |
+            PieceMid(piece_idx, _) |
+            PieceTail(piece_idx, _) => piece_idx,
+            EOF => panic!("range out of bounds"),
+        };
+
+        let mut iter = self.make_iter(piece_idx);
+
+        iter.idx = from;
+
+        Range {
+            iter: iter,
+            to: to,
         }
     }
 
@@ -234,14 +260,13 @@ impl<'a, T> Iterator for Iter<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.piece.map(|piece| {
+        self.table.pieces.get(self.piece_idx).map(|piece| {
             let ret = self.buffer.get(piece.start + self.idx).unwrap();
 
             self.idx += 1;
             if self.idx >= piece.length {
                 self.idx = 0;
                 self.piece_idx += 1;
-                self.piece = self.table.pieces.get(self.piece_idx);
 
                 self.buffer = match piece.buffer {
                     Add => &self.table.adds,
@@ -251,6 +276,18 @@ impl<'a, T> Iterator for Iter<'a, T> {
 
             ret
         })
+    }
+}
+
+impl<'a, T> Iterator for Range<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.iter.idx >= self.to {
+            None
+        } else {
+            self.iter.next()
+        }
     }
 }
 
