@@ -1,3 +1,10 @@
+//! Implementation of a piece table based on a vector.
+//! A piece table provides efficient methods for inserting and removing elements sequentially, intended for use as the underlying data structure in a text editor.
+//!
+//! The piece table stores a read only reference to a source (if one is provided) and stores inserted elements in an append-only vector.
+//! A table of pieces pointing either to the source or add-buffer is maintained, and these pieces are manipulated when inserting and removing text.
+//! Asymptotics in the following are based on `p`, the number of pieces, where `p` should be strictly smaller than the number of elements when used as intended.
+
 #![feature(test)]
 
 extern crate test;
@@ -29,6 +36,7 @@ struct Piece {
     buffer: Buffer,
 }
 
+/// The `PieceTable` type with all relevant methods.
 #[derive(Debug)]
 pub struct PieceTable<'a, T: 'a> {
     original: &'a [T],
@@ -38,6 +46,7 @@ pub struct PieceTable<'a, T: 'a> {
     reusable_insert: Option<usize>,
 }
 
+/// Struct for iterating the elements of a `PieceTable`.
 #[derive(Debug)]
 pub struct Iter<'a, T: 'a> {
     table: &'a PieceTable<'a, T>,
@@ -46,6 +55,7 @@ pub struct Iter<'a, T: 'a> {
     buffer: &'a [T],
 }
 
+/// Struct for iterating a range of elements in a `PieceTable`.
 #[derive(Debug)]
 pub struct Range<'a, T: 'a> {
     iter: Iter<'a, T>,
@@ -55,6 +65,13 @@ pub struct Range<'a, T: 'a> {
 
 impl<'a, T: 'a> PieceTable<'a, T> {
 
+    /// Construct a new `PieceTable`
+    ///
+    /// # Example
+    /// ```
+    /// use piecetable::PieceTable;
+    /// let table: PieceTable<char> = PieceTable::new();
+    /// ```
     pub fn new() -> PieceTable<'a, T> {
         PieceTable {
             original: &[],
@@ -65,6 +82,14 @@ impl<'a, T: 'a> PieceTable<'a, T> {
         }
     }
 
+    /// Assign a read-only source to an existing `PieceTable`.
+    ///
+    /// # Example
+    /// ```
+    /// use piecetable::PieceTable;
+    /// let src: Vec<i32> = (0..100).collect();
+    /// let table = PieceTable::new().src(&src);
+    /// ```
     pub fn src(mut self, src: &'a [T]) -> PieceTable<'a, T> {
         let mut pieces = Vec::new();
         if src.len() > 0 {
@@ -91,11 +116,9 @@ impl<'a, T: 'a> PieceTable<'a, T> {
             EOF => self.adds.len(),
         };
 
+        // TODO: can be cleaned up with option
         if let Some(piece) = self.pieces.get(piece_idx) {
-            buffer = match piece.buffer {
-                Add => std::borrow::Borrow::borrow(&self.adds),
-                Original => self.original,
-            };
+            buffer = self.get_buffer(piece);
         } else {
             buffer = &[];
         }
@@ -108,10 +131,31 @@ impl<'a, T: 'a> PieceTable<'a, T> {
         }
     }
 
+    /// Return an iterator over all elements of the `PieceTable`.
+    ///
+    /// Advancing the iterator takes constant time.
+    ///
+    /// # Example
+    /// ```
+    /// use piecetable::PieceTable;
+    /// let src: Vec<i32> = (0..101).collect();
+    /// let table = PieceTable::new().src(&src);
+    /// assert_eq!(5050, table.iter().fold(0, |acc, &x| acc + x));
+    /// ```
     pub fn iter(&'a self) -> Iter<'a, T> {
         self.make_iter(0)
     }
 
+    /// Return an iterator over the range `[from, to)` in the `PieceTable`.
+    /// Construction the iterator takes `O(p)` time, but consuming it is constant time per element.
+    ///
+    /// # Example
+    /// ```
+    /// use piecetable::PieceTable;
+    /// let src: Vec<i32> = (0..100).collect();
+    /// let table = PieceTable::new().src(&src);
+    /// assert_eq!(vec![&55, &56, &57], table.range(55, 58).collect::<Vec<&i32>>());
+    /// ```
     pub fn range(&'a self, from: usize, to: usize) -> Range<'a, T> {
         let iter = self.make_iter(from);
 
@@ -122,6 +166,21 @@ impl<'a, T: 'a> PieceTable<'a, T> {
         }
     }
 
+    /// Insert an element at `idx`.
+    ///
+    /// `O(p)` time, but sequential inserts afterwards take `O(1) `time.
+    ///
+    /// # Example
+    /// ```
+    /// use piecetable::PieceTable;
+    /// let src: Vec<i32> = (0..100).collect();
+    /// let mut table = PieceTable::new().src(&src);
+    /// table.insert(11, 42); // takes `O(p)` time
+    /// table.insert(12, 42); // constant time
+    /// table.insert(13, 42); // constant time
+    /// table.insert(27, 42); // `O(p)` time
+    /// table.insert(28, 42); // constant time
+    /// ```
     pub fn insert(&mut self, idx: usize, item: T) {
         match self.reusable_insert {
             Some(piece_idx) if idx == self.last_idx+1 => {
@@ -185,7 +244,19 @@ impl<'a, T: 'a> PieceTable<'a, T> {
         }
     }
 
-    // TODO: don't know if we want to return the deleted item
+    /// Remove the element at the given index.
+    ///
+    /// `O(p)` operation, but removing just inserted indices sequentially is `O(1)`
+    /// and most remove operations are cheap.
+    /// # Example
+    /// ```
+    /// use piecetable::PieceTable;
+    /// let src: Vec<i32> = (0..10).collect();
+    /// let mut table = PieceTable::new().src(&src);
+    /// table.remove(5);
+    /// table.remove(6);
+    /// assert_eq!(vec![&0, &1, &2, &3, &4, &6, &8, &9], table.iter().collect::<Vec<&i32>>());
+    /// ```
     pub fn remove(&mut self, idx: usize) {
         let mut remove: Option<usize> = None;
 
@@ -277,6 +348,13 @@ impl<'a, T: 'a> PieceTable<'a, T> {
 
         EOF
     }
+
+    fn get_buffer(&'a self, piece: &Piece) -> &'a [T] {
+        match piece.buffer {
+            Add => &self.adds,
+            Original => self.original,
+        }
+    }
 }
 
 impl<'a, T> Iterator for Iter<'a, T> {
@@ -316,11 +394,10 @@ impl<'a, T> Iterator for Range<'a, T> {
     }
 }
 
-// TODO: iter_mut, move
-
 impl<'a, T> Index<usize> for PieceTable<'a, T> {
     type Output = T;
 
+    /// Note: Reading an index takes `O(p)` time, use iterators for fast sequential access.
     fn index<'b>(&'b self, idx: usize) -> &'b T {
         let (piece_idx, norm_idx) = match self.idx_to_location(idx) {
             PieceHead(piece_idx) => (piece_idx, 0),

@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Iter","Struct for iterating the elements of a `PieceTable`."],["PieceTable","The `PieceTable` type with all relevant methods."],["Range","Struct for iterating a range of elements in a `PieceTable`."]]});
