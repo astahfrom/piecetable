@@ -14,7 +14,7 @@ enum Buffer {
     Original,
 }
 
-#[derive(Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 enum Location {
     PieceHead(usize),
     PieceMid(usize, usize),
@@ -34,7 +34,8 @@ pub struct PieceTable<'a, T: 'a> {
     original: &'a [T],
     adds: Vec<T>,
     pieces: Vec<Piece>,
-    reusable_piece: Option<(usize, usize)>,
+    last_idx: usize,
+    reusable_insert: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -59,7 +60,8 @@ impl<'a, T: 'a> PieceTable<'a, T> {
             original: &[],
             adds: Vec::new(),
             pieces: Vec::new(),
-            reusable_piece: None,
+            last_idx: 0,
+            reusable_insert: None,
         }
     }
 
@@ -121,15 +123,16 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     }
 
     pub fn insert(&mut self, idx: usize, item: T) {
-        match self.reusable_piece {
-            Some((last_idx, piece_idx)) if idx == last_idx+1 => {
+        match self.reusable_insert {
+            Some(piece_idx) if idx == self.last_idx+1 => {
                 let piece = self.pieces.get_mut(piece_idx).unwrap();
                 self.adds.push(item);
                 piece.length += 1;
-                self.reusable_piece= Some((idx, piece_idx));
             }
             _ => self.raw_insert(idx, item),
         }
+
+        self.last_idx = idx;
     }
 
     fn raw_insert(&mut self, idx: usize, item: T) {
@@ -144,7 +147,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
                     buffer: Add,
                 });
 
-                self.reusable_piece = Some((idx, piece_idx));
+                self.reusable_insert = Some(piece_idx);
             },
             PieceMid(piece_idx, norm_idx) | PieceTail(piece_idx, norm_idx) => {
                 let orig = self.pieces[piece_idx].clone();
@@ -160,7 +163,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
                     buffer: Add,
                 });
 
-                self.reusable_piece = Some((idx, piece_idx+1));
+                self.reusable_insert = Some(piece_idx+1);
 
                 self.pieces.insert(piece_idx+2, Piece {
                     start: orig.start + norm_idx,
@@ -177,17 +180,41 @@ impl<'a, T: 'a> PieceTable<'a, T> {
                     buffer: Add,
                 });
 
-                self.reusable_piece = Some((idx, piece_idx));
+                self.reusable_insert = Some(piece_idx);
             }
         }
     }
 
     // TODO: don't know if we want to return the deleted item
-    // TODO: optimize continous deletes
     pub fn remove(&mut self, idx: usize) {
-        self.reusable_piece = None;
+        let mut remove: Option<usize> = None;
 
-        match self.idx_to_location(idx) {
+        match self.reusable_insert {
+            Some(piece_idx) if idx == self.last_idx+1 => {
+                let piece = self.pieces.get_mut(piece_idx).unwrap();
+                piece.length -= 1;
+                if piece.length == 0 {
+                    remove = Some(piece_idx);
+                }
+            },
+            _ => {
+                self.reusable_insert = None;
+
+                let location = self.idx_to_location(idx);
+                self.raw_remove(location);
+            },
+        }
+
+        if let Some(piece_idx) = remove {
+            self.pieces.remove(piece_idx);
+            self.reusable_insert = None;
+        }
+
+        self.last_idx = idx;
+    }
+
+    fn raw_remove(&mut self, location: Location) {
+        match location {
             PieceHead(piece_idx) => {
                 let remove: bool;
                 if let Some(piece) = self.pieces.get_mut(piece_idx) {
@@ -216,13 +243,8 @@ impl<'a, T: 'a> PieceTable<'a, T> {
                 }
             },
             PieceMid(piece_idx, norm_idx) => {
-                let piece_length: usize;
-                let piece_start: usize;
-                let piece_buffer: Buffer;
+                let orig = self.pieces[piece_idx].clone();
                 if let Some(piece) = self.pieces.get_mut(piece_idx) {
-                    piece_start = piece.start;
-                    piece_length = piece.length;
-                    piece_buffer = piece.buffer;
                     piece.length = norm_idx;
                 } else {
                     panic!("find_piece_idx returned invalid index");
@@ -230,9 +252,9 @@ impl<'a, T: 'a> PieceTable<'a, T> {
 
                 let start = norm_idx + 1;
                 self.pieces.insert(piece_idx+1, Piece {
-                    start: piece_start + start,
-                    length: piece_length - start,
-                    buffer: piece_buffer,
+                    start: orig.start + start,
+                    length: orig.length - start,
+                    buffer: orig.buffer,
                 });
             },
             EOF => {},
@@ -335,8 +357,6 @@ mod tests {
 
         b.iter(|| src.iter().fold(0, |acc, &x| acc + x));
     }
-
-    // TODO: benchmark remove
 
     #[bench]
     fn given_10k_insert_last_table(b: &mut Bencher) {
@@ -462,6 +482,79 @@ mod tests {
                 sum += vec[i];
             }
             sum
+        })
+    }
+
+    #[bench]
+    fn given_10k_remove_mid_100_backwards_table(b: &mut Bencher) {
+        b.iter(|| {
+            let src: Vec<i32> = (0..10_000).collect();
+            let mut table = PieceTable::new().src(&src);
+            for i in (5_000..6_000).rev() {
+                table.remove(i);
+            }
+        })
+    }
+
+    #[bench]
+    fn given_10k_remove_mid_100_backwards_vec(b: &mut Bencher) {
+        b.iter(|| {
+            let mut vec: Vec<i32> = (0..10_000).collect();
+            for i in (5_000..6_000).rev() {
+                vec.remove(i);
+            }
+        })
+    }
+
+    #[bench]
+    fn given_10k_remove_mid_100_forwards_table(b: &mut Bencher) {
+        b.iter(|| {
+            let src: Vec<i32> = (0..10_000).collect();
+            let mut table = PieceTable::new().src(&src);
+            for i in (5_000..5_100) {
+                table.remove(i);
+            }
+        })
+    }
+
+    #[bench]
+    fn given_10k_remove_mid_100_forwards_vec(b: &mut Bencher) {
+        b.iter(|| {
+            let mut vec: Vec<i32> = (0..10_000).collect();
+            for i in (5_000..5_100) {
+                vec.remove(i);
+            }
+        })
+    }
+
+    #[bench]
+    fn given_10k_insert_then_remove_100_mid_table(b: &mut Bencher) {
+        let range = 5_000 .. 5_100;
+        b.iter(|| {
+            let src: Vec<i32> = (0..10_000).collect();
+            let mut table = PieceTable::new().src(&src);
+            for i in range.clone() {
+                table.insert(i, 42);
+            }
+
+            for i in range.clone().rev() {
+                table.remove(i);
+            }
+        })
+    }
+
+    #[bench]
+    fn given_10k_insert_then_remove_100_mid_vec(b: &mut Bencher) {
+        let range = 5_000 .. 5_100;
+        b.iter(|| {
+            let mut vec: Vec<i32> = (0..10_000).collect();
+            for i in range.clone() {
+                vec.insert(i, 42);
+            }
+
+            for i in range.clone().rev() {
+                vec.remove(i);
+            }
         })
     }
 }
