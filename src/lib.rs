@@ -39,6 +39,7 @@ pub struct PieceTable<'a, T: 'a> {
     adds: Vec<T>,
     pieces: Vec<Piece>,
     last_idx: usize,
+    length: usize,
     reusable_insert: Option<usize>,
 }
 
@@ -74,6 +75,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
             adds: Vec::new(),
             pieces: Vec::new(),
             last_idx: 0,
+            length: 0,
             reusable_insert: None,
         }
     }
@@ -98,6 +100,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
 
         self.original = src;
         self.pieces = pieces;
+        self.length = src.len();
 
         self
     }
@@ -166,6 +169,9 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     ///
     /// `O(p)` time, but sequential inserts afterwards take `O(1) `time.
     ///
+    /// # Panics
+    /// Panics if not `idx <= len`.
+    ///
     /// # Example
     /// ```
     /// use piecetable::PieceTable;
@@ -178,9 +184,11 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     /// table.insert(28, 42); // constant time
     /// ```
     pub fn insert(&mut self, idx: usize, item: T) {
+        assert!(idx <= self.length);
+
         match self.reusable_insert {
             Some(piece_idx) if idx == self.last_idx+1 => {
-                let piece = self.pieces.get_mut(piece_idx).unwrap();
+                let piece = &mut self.pieces[piece_idx];
                 self.adds.push(item);
                 piece.length += 1;
             }
@@ -188,6 +196,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
         }
 
         self.last_idx = idx;
+        self.length += 1;
     }
 
     fn raw_insert(&mut self, idx: usize, item: T) {
@@ -244,6 +253,10 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     ///
     /// `O(p)` operation, but removing just inserted indices sequentially is `O(1)`
     /// and most remove operations are cheap.
+    ///
+    /// # Panics
+    /// Panics if not `idx < len`.
+    ///
     /// # Example
     /// ```
     /// use piecetable::PieceTable;
@@ -254,30 +267,32 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     /// assert_eq!(vec![&0, &1, &2, &3, &4, &6, &8, &9], table.iter().collect::<Vec<&i32>>());
     /// ```
     pub fn remove(&mut self, idx: usize) {
+        assert!(idx < self.length);
+
         let mut remove: Option<usize> = None;
 
         match self.reusable_insert {
-            Some(piece_idx) if idx == self.last_idx+1 => {
-                let piece = self.pieces.get_mut(piece_idx).unwrap();
+            Some(piece_idx) if idx == self.last_idx => {
+                let piece = &mut self.pieces[piece_idx];
                 piece.length -= 1;
                 if piece.length == 0 {
                     remove = Some(piece_idx);
                 }
             },
             _ => {
-                self.reusable_insert = None;
-
                 let location = self.idx_to_location(idx);
                 self.raw_remove(location);
             },
         }
 
+        self.reusable_insert = None;
+
         if let Some(piece_idx) = remove {
             self.pieces.remove(piece_idx);
-            self.reusable_insert = None;
         }
 
         self.last_idx = idx;
+        self.length -= 1;
     }
 
     fn raw_remove(&mut self, location: Location) {
@@ -366,8 +381,7 @@ impl<'a, T> Iterator for Iter<'a, T> {
                 self.piece_idx += 1;
 
                 self.buffer = match self.table.pieces.get(self.piece_idx) {
-                    Some(p) if p.buffer == Add => &self.table.adds,
-                    Some(p) if p.buffer == Original => self.table.original,
+                    Some(p) => self.table.get_buffer(p),
                     _ => &[],
                 };
             }
