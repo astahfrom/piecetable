@@ -33,7 +33,7 @@ struct Piece {
 }
 
 /// The `PieceTable` type with all relevant methods.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PieceTable<'a, T: 'a> {
     original: &'a [T],
     adds: Vec<T>,
@@ -103,6 +103,11 @@ impl<'a, T: 'a> PieceTable<'a, T> {
         self.length = src.len();
 
         self
+    }
+
+    /// The number of elements stored in the piece table.
+    pub fn len(&self) -> usize {
+        self.length
     }
 
     fn make_iter(&'a self, idx: usize) -> Iter<'a, T> {

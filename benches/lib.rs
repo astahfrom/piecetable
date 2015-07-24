@@ -1,223 +1,478 @@
 #![feature(test)]
+#![feature(vec_push_all)]
 
 extern crate test;
 extern crate piecetable;
 
-use test::Bencher;
+extern crate rand;
+extern crate quickcheck;
 
+mod generators;
+use generators::*;
+
+use test::Bencher;
 use piecetable::PieceTable;
 
-#[bench]
-fn given_10k_iter_table(b: &mut Bencher) {
-    let src: Vec<i32> = (0..10_000).collect();
-    let table = PieceTable::new().src(&src);
+// TODO: traits could remove some duplication
 
-    b.iter(|| table.iter().fold(0, |acc, &x| acc + x))
-}
+const SEED: &'static [usize] = &[1, 2, 3, 4];
+const SIZE: usize = 1_000;
+const VALUE: i32 = 42;
+const SRC: &'static [i32; 10_000] = &[0; 10_000];
 
-#[bench]
-fn given_10k_iter_vec(b: &mut Bencher) {
-    let src: Vec<i32> = (0..10_000).collect();
-
-    b.iter(|| src.iter().fold(0, |acc, &x| acc + x));
-}
-
-#[bench]
-fn given_10k_insert_last_table(b: &mut Bencher) {
-    let src: Vec<i32> = (0..10_000).collect();
-
-    b.iter(|| {
-        let mut table = PieceTable::new().src(&src);
-        table.insert(10_000, 42);
-    })
-}
-
-#[bench]
-fn given_10k_insert_last_vec(b: &mut Bencher) {
-    // Note: not entirely fair, because this vec will grow.
-    let mut vec: Vec<i32> = (0..10_000).collect();
-
-    b.iter(|| {
-        vec.push(42);
-    })
-}
-
-#[bench]
-fn given_10k_insert_first_table(b: &mut Bencher) {
-    let src: Vec<i32> = (0..10_000).collect();
-
-    b.iter(|| {
-        let mut table = PieceTable::new().src(&src);
-        table.insert(0, 42);
-    })
-}
-
-#[bench]
-fn given_10k_insert_first_vec(b: &mut Bencher) {
-    let mut vec: Vec<i32> = (0..10_000).collect();
-
-    b.iter(|| {
-        vec.insert(0, 42);
-    })
-}
-
-#[bench]
-fn empty_insert_10k_linear_table(b: &mut Bencher) {
-    b.iter(|| {
-        let mut table = PieceTable::new();
-        for (i, x) in (0..10_000).enumerate() {
-            table.insert(i, x);
-        }
-    });
-}
-
-#[bench]
-fn empty_insert_10k_linear_vec(b: &mut Bencher) {
-    b.iter(|| {
-        let mut vec = Vec::new();
-        for (i, x) in (0..10_000).enumerate() {
-            vec.insert(i, x);
-        }
-    });
-}
-
-fn clustered_insert_indices(clusters: usize, cluster_size: usize) -> Vec<usize> {
-    let max = clusters * cluster_size;
-    let mut indices: Vec<usize> = Vec::with_capacity(max);
-    let mut offset = 0;
-
-    for i in (0..max) {
-        let rem = i % cluster_size;
-        indices.push(rem + offset);
-
-        if rem == cluster_size - 1 {
-            offset = i / (rem + offset);
+fn run_commands_table<T: Copy>(table: &mut PieceTable<T>, cmds: &[Command<T>]) {
+    for &cmd in cmds {
+        match cmd {
+            Insert(idx, value) => table.insert(idx, value),
+            Remove(idx) => table.remove(idx),
         }
     }
-
-    indices
 }
 
-#[bench]
-fn empty_insert_100_clusters_of_100_table(b: &mut Bencher) {
-    let indices = clustered_insert_indices(100, 100);
+fn run_commands_vec<T: Copy>(vec: &mut Vec<T>, cmds: &[Command<T>]) {
+    for &cmd in cmds {
+        match cmd {
+            Insert(idx, value) => vec.insert(idx, value),
+            Remove(idx) => { vec.remove(idx); },
+        }
+    }
+}
 
+// EMPTY
+// - insert single
+// - insert scattered
+// - insert clustered
+// - insert/remove scattered
+// - insert/remove clustered
+
+
+fn run_benchmark_empty_table(b: &mut Bencher, commands: &[Command<i32>]) {
     b.iter(|| {
         let mut table = PieceTable::new();
-        for &i in indices.iter() {
-            table.insert(i, 42);
-        }
-    });
+        run_commands_table(&mut table, commands);
+    })
 }
 
-#[bench]
-fn empty_insert_100_clusters_of_100_vec(b: &mut Bencher) {
-    let indices = clustered_insert_indices(100, 100);
-
+fn run_benchmark_empty_vec(b: &mut Bencher, commands: &[Command<i32>]) {
     b.iter(|| {
         let mut vec = Vec::new();
-        for &i in indices.iter() {
-            vec.insert(i, 42);
-        }
+        run_commands_vec(&mut vec, commands);
+    })
+}
+
+// Table
+
+#[bench]
+fn empty_insert_single_table(b: &mut Bencher) {
+    b.iter(|| {
+        let mut table = PieceTable::new();
+        table.insert(0, VALUE);
+    })
+}
+
+#[bench]
+fn empty_insert_scattered_table(b: &mut Bencher) {
+    let recipe: InsertScattered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_empty_table(b, &recipe.commands);
+}
+
+#[bench]
+fn empty_insert_clustered_table(b: &mut Bencher) {
+    let recipe: InsertClustered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_empty_table(b, &recipe.commands);
+}
+
+#[bench]
+fn empty_insert_remove_scattered_table(b: &mut Bencher) {
+    let recipe: InsertRemoveScatteredEmpty<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_empty_table(b, &recipe.commands);
+}
+
+#[bench]
+fn empty_insert_remove_clustered_table(b: &mut Bencher) {
+    let recipe: InsertRemoveClusteredEmpty<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_empty_table(b, &recipe.commands);
+}
+
+// Vec
+
+#[bench]
+fn empty_insert_single_vec(b: &mut Bencher) {
+    b.iter(|| {
+        let mut vec = Vec::new();
+        vec.insert(0, VALUE);
+    })
+}
+
+#[bench]
+fn empty_insert_scattered_vec(b: &mut Bencher) {
+    let recipe: InsertScattered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_empty_vec(b, &recipe.commands);
+}
+
+#[bench]
+fn empty_insert_clustered_vec(b: &mut Bencher) {
+    let recipe: InsertClustered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_empty_vec(b, &recipe.commands);
+}
+
+#[bench]
+fn empty_insert_remove_scattered_vec(b: &mut Bencher) {
+    let recipe: InsertRemoveScatteredEmpty<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_empty_vec(b, &recipe.commands);
+}
+
+#[bench]
+fn empty_insert_remove_clustered_vec(b: &mut Bencher) {
+    let recipe: InsertRemoveClusteredEmpty<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_empty_vec(b, &recipe.commands);
+}
+
+// FRESH (10k)
+// - iter/sum
+// - insert first
+// - insert mid
+// - insert last
+// - insert scatter
+// - insert clusters
+// - remove scatter
+// - remove clusters
+// - insert/remove scatter
+// - insert/remove clusters
+
+fn run_benchmark_fresh_table(b: &mut Bencher, commands: &[Command<i32>]) {
+    b.iter(|| {
+        let mut table = PieceTable::new().src(SRC);
+        run_commands_table(&mut table, commands);
+    })
+}
+
+fn run_benchmark_fresh_vec(b: &mut Bencher, commands: &[Command<i32>]) {
+    b.iter(|| {
+        let mut vec = Vec::with_capacity(SRC.len());
+        vec.push_all(SRC); // Not sure if this is the best way to do this
+        run_commands_vec(&mut vec, commands);
+    })
+}
+
+// Table
+
+#[bench]
+fn fresh_iter_table(b: &mut Bencher) {
+    let table = PieceTable::new().src(SRC);
+    b.iter(|| table.iter().fold(0, |acc, &x| acc + x));
+}
+
+#[bench]
+fn fresh_insert_first_table(b: &mut Bencher) {
+    b.iter(|| {
+        let mut table = PieceTable::new().src(SRC);
+        table.insert(0, VALUE)
     });
 }
 
 #[bench]
-fn given_10k_index_sum_table(b: &mut Bencher) {
-    let src: Vec<i32> = (0..10_000).collect();
-    let table = PieceTable::new().src(&src);
-
+fn fresh_insert_middle_table(b: &mut Bencher) {
     b.iter(|| {
-        let mut sum = 0;
-        for i in (0..src.len()) {
-            sum += table[i];
-        }
-        sum
-    })
+        let mut table = PieceTable::new().src(SRC);
+        table.insert(SRC.len() / 2, VALUE)
+    });
 }
 
 #[bench]
-fn given_10k_index_sum_vec(b: &mut Bencher) {
-    let vec: Vec<i32> = (0..10_000).collect();
-
+fn fresh_insert_last_table(b: &mut Bencher) {
     b.iter(|| {
-        let mut sum = 0;
-        for i in (0..vec.len()) {
-            sum += vec[i];
-        }
-        sum
-    })
+        let mut table = PieceTable::new().src(SRC);
+        table.insert(SRC.len(), VALUE)
+    });
 }
 
 #[bench]
-fn given_10k_remove_mid_100_backwards_table(b: &mut Bencher) {
-    b.iter(|| {
-        let src: Vec<i32> = (0..10_000).collect();
-        let mut table = PieceTable::new().src(&src);
-        for i in (5_000..6_000).rev() {
-            table.remove(i);
-        }
-    })
+fn fresh_insert_scattered_table(b: &mut Bencher) {
+    let recipe: InsertScattered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_fresh_table(b, &recipe.commands);
 }
 
 #[bench]
-fn given_10k_remove_mid_100_backwards_vec(b: &mut Bencher) {
-    b.iter(|| {
-        let mut vec: Vec<i32> = (0..10_000).collect();
-        for i in (5_000..6_000).rev() {
-            vec.remove(i);
-        }
-    })
+fn fresh_insert_clustered_table(b: &mut Bencher) {
+    let recipe: InsertClustered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_fresh_table(b, &recipe.commands);
 }
 
 #[bench]
-fn given_10k_remove_mid_100_forwards_table(b: &mut Bencher) {
-    b.iter(|| {
-        let src: Vec<i32> = (0..10_000).collect();
-        let mut table = PieceTable::new().src(&src);
-        for i in (5_000..5_100) {
-            table.remove(i);
-        }
-    })
+fn fresh_remove_scattered_table(b: &mut Bencher) {
+    let recipe: RemoveScattered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_fresh_table(b, &recipe.commands);
 }
 
 #[bench]
-fn given_10k_remove_mid_100_forwards_vec(b: &mut Bencher) {
-    b.iter(|| {
-        let mut vec: Vec<i32> = (0..10_000).collect();
-        for i in (5_000..5_100) {
-            vec.remove(i);
-        }
-    })
+fn fresh_remove_clustered_table(b: &mut Bencher) {
+    let recipe: RemoveClustered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_fresh_table(b, &recipe.commands);
 }
 
 #[bench]
-fn given_10k_insert_then_remove_100_mid_table(b: &mut Bencher) {
-    let range = 5_000 .. 5_100;
-    b.iter(|| {
-        let src: Vec<i32> = (0..10_000).collect();
-        let mut table = PieceTable::new().src(&src);
-        for i in range.clone() {
-            table.insert(i, 42);
-        }
-
-        for i in range.clone().rev() {
-            table.remove(i);
-        }
-    })
+fn fresh_insert_remove_scattered_table(b: &mut Bencher) {
+    let recipe: InsertRemoveScatteredEmpty<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_fresh_table(b, &recipe.commands);
 }
 
 #[bench]
-fn given_10k_insert_then_remove_100_mid_vec(b: &mut Bencher) {
-    let range = 5_000 .. 5_100;
-    b.iter(|| {
-        let mut vec: Vec<i32> = (0..10_000).collect();
-        for i in range.clone() {
-            vec.insert(i, 42);
-        }
+fn fresh_insert_remove_clustered_table(b: &mut Bencher) {
+    let recipe: InsertRemoveClusteredEmpty<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_fresh_table(b, &recipe.commands);
+}
 
-        for i in range.clone().rev() {
-            vec.remove(i);
-        }
+// Vec
+
+#[bench]
+fn fresh_iter_vec(b: &mut Bencher) {
+    let mut vec = Vec::with_capacity(SRC.len());
+    vec.push_all(SRC);
+    b.iter(|| vec.iter().fold(0, |acc, &x| acc + x));
+}
+
+#[bench]
+fn fresh_insert_first_vec(b: &mut Bencher) {
+    let mut vec = Vec::with_capacity(SRC.len());
+    vec.push_all(SRC);
+    b.iter(|| vec.insert(0, VALUE));
+}
+
+#[bench]
+fn fresh_insert_middle_vec(b: &mut Bencher) {
+    let mut vec = Vec::with_capacity(SRC.len());
+    vec.push_all(SRC);
+    b.iter(|| vec.insert(SRC.len()/2, VALUE));
+}
+
+#[bench]
+fn fresh_insert_last_vec(b: &mut Bencher) {
+    let mut vec = Vec::with_capacity(SRC.len());
+    vec.push_all(SRC);
+    b.iter(|| vec.insert(SRC.len(), VALUE))
+}
+
+#[bench]
+fn fresh_insert_scattered_vec(b: &mut Bencher) {
+    let recipe: InsertScattered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_fresh_vec(b, &recipe.commands);
+}
+
+#[bench]
+fn fresh_insert_clustered_vec(b: &mut Bencher) {
+    let recipe: InsertClustered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_fresh_vec(b, &recipe.commands);
+}
+
+#[bench]
+fn fresh_remove_scattered_vec(b: &mut Bencher) {
+    let recipe: RemoveScattered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_fresh_vec(b, &recipe.commands);
+}
+
+#[bench]
+fn fresh_remove_clustered_vec(b: &mut Bencher) {
+    let recipe: RemoveClustered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_fresh_vec(b, &recipe.commands);
+}
+
+#[bench]
+fn fresh_insert_remove_scattered_vec(b: &mut Bencher) {
+    let recipe: InsertRemoveScatteredEmpty<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_fresh_vec(b, &recipe.commands);
+}
+
+#[bench]
+fn fresh_insert_remove_clustered_vec(b: &mut Bencher) {
+    let recipe: InsertRemoveClusteredEmpty<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_fresh_vec(b, &recipe.commands);
+}
+
+// EDITED
+// - iter/sum
+// - insert first
+// - insert mid
+// - insert last
+// - insert scatter
+// - insert clusters
+// - remove scatter
+// - remove clusters
+// - insert/remove scatter
+// - insert/remove clusters
+
+fn make_edited_table<'a>() -> PieceTable<'a, i32> {
+    let recipe: InsertClustered<i32> = make_recipe(SEED, SIZE);
+    let mut table = PieceTable::new();
+    run_commands_table(&mut table, &recipe.commands);
+    table
+}
+
+fn make_edited_vec() -> Vec<i32> {
+    let recipe: InsertClustered<i32> = make_recipe(SEED, SIZE);
+    let mut vec = Vec::with_capacity(recipe.commands.len());
+    run_commands_vec(&mut vec, &recipe.commands);
+    vec
+}
+
+fn run_benchmark_edited_table(b: &mut Bencher, commands: &[Command<i32>]) {
+    let table = make_edited_table();
+    b.iter(|| {
+        let mut table = table.clone();
+        run_commands_table(&mut table, commands);
     })
+}
+
+fn run_benchmark_edited_vec(b: &mut Bencher, commands: &[Command<i32>]) {
+    let vec = make_edited_vec();
+    b.iter(|| {
+        let mut vec = vec.clone();
+        run_commands_vec(&mut vec, commands);
+    })
+}
+
+// Table
+
+#[bench]
+fn edited_iter_table(b: &mut Bencher) {
+    let table = make_edited_table();
+    b.iter(|| table.iter().fold(0, |acc, &x| acc + x));
+}
+
+#[bench]
+fn edited_insert_first_table(b: &mut Bencher) {
+    let table = make_edited_table();
+    b.iter(|| {
+        let mut table = table.clone();
+        table.insert(0, VALUE)
+    });
+}
+
+#[bench]
+fn edited_insert_middle_table(b: &mut Bencher) {
+    let table = make_edited_table();
+    let idx = table.len() / 2;
+    b.iter(|| {
+        let mut table = table.clone();
+        table.insert(idx, VALUE)
+    });
+}
+
+#[bench]
+fn edited_insert_last_table(b: &mut Bencher) {
+    let table = make_edited_table();
+    let idx = table.len();
+    b.iter(|| {
+        let mut table = table.clone();
+        table.insert(idx, VALUE)
+    });
+}
+
+#[bench]
+fn edited_insert_scattered_table(b: &mut Bencher) {
+    let recipe: InsertScattered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_edited_table(b, &recipe.commands);
+}
+
+#[bench]
+fn edited_insert_clustered_table(b: &mut Bencher) {
+    let recipe: InsertClustered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_edited_table(b, &recipe.commands);
+}
+
+#[bench]
+fn edited_remove_scattered_table(b: &mut Bencher) {
+    let recipe: RemoveScattered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_edited_table(b, &recipe.commands);
+}
+
+#[bench]
+fn edited_remove_clustered_table(b: &mut Bencher) {
+    let recipe: RemoveClustered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_edited_table(b, &recipe.commands);
+}
+
+#[bench]
+fn edited_insert_remove_scattered_table(b: &mut Bencher) {
+    let recipe: InsertRemoveScatteredEmpty<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_edited_table(b, &recipe.commands);
+}
+
+#[bench]
+fn edited_insert_remove_clustered_table(b: &mut Bencher) {
+    let recipe: InsertRemoveClusteredEmpty<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_edited_table(b, &recipe.commands);
+}
+
+// Vec
+
+#[bench]
+fn edited_iter_vec(b: &mut Bencher) {
+    let vec = make_edited_vec();
+    b.iter(|| vec.iter().fold(0, |acc, &x| acc + x));
+}
+
+#[bench]
+fn edited_insert_first_vec(b: &mut Bencher) {
+    let vec = make_edited_vec();
+    b.iter(|| {
+        let mut vec = vec.clone();
+       vec.insert(0, VALUE)
+    });
+}
+
+#[bench]
+fn edited_insert_middle_vec(b: &mut Bencher) {
+    let vec = make_edited_vec();
+    let idx = vec.len()/2;
+    b.iter(|| {
+        let mut vec = vec.clone();
+       vec.insert(idx, VALUE)
+    });
+}
+
+#[bench]
+fn edited_insert_last_vec(b: &mut Bencher) {
+    let vec = make_edited_vec();
+    let idx = vec.len();
+    b.iter(|| {
+        let mut vec = vec.clone();
+       vec.insert(idx, VALUE)
+    });
+}
+
+#[bench]
+fn edited_insert_scattered_vec(b: &mut Bencher) {
+    let recipe: InsertScattered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_edited_vec(b, &recipe.commands);
+}
+
+#[bench]
+fn edited_insert_clustered_vec(b: &mut Bencher) {
+    let recipe: InsertClustered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_edited_vec(b, &recipe.commands);
+}
+
+#[bench]
+fn edited_remove_scattered_vec(b: &mut Bencher) {
+    let recipe: RemoveScattered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_edited_vec(b, &recipe.commands);
+}
+
+#[bench]
+fn edited_remove_clustered_vec(b: &mut Bencher) {
+    let recipe: RemoveClustered<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_edited_vec(b, &recipe.commands);
+}
+
+#[bench]
+fn edited_insert_remove_scattered_vec(b: &mut Bencher) {
+    let recipe: InsertRemoveScatteredEmpty<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_edited_vec(b, &recipe.commands);
+}
+
+#[bench]
+fn edited_insert_remove_clustered_vec(b: &mut Bencher) {
+    let recipe: InsertRemoveClusteredEmpty<i32> = make_recipe(SEED, SIZE);
+    run_benchmark_edited_vec(b, &recipe.commands);
 }
