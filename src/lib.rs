@@ -25,7 +25,7 @@ enum Location {
     EOF,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 struct Piece {
     start: usize,
     length: usize,
@@ -44,16 +44,14 @@ pub struct PieceTable<'a, T: 'a> {
 }
 
 /// Struct for iterating the elements of a `PieceTable`.
-#[derive(Debug)]
-pub struct Iter<'a, T: 'a> {
+pub struct Iter<'a, T: 'a>
+{
     table: &'a PieceTable<'a, T>,
-    idx: usize,
     piece_idx: usize,
-    buffer: &'a [T],
+    it: std::slice::Iter<'a, T>,
 }
 
 /// Struct for iterating a range of elements in a `PieceTable`.
-#[derive(Debug)]
 pub struct Range<'a, T: 'a> {
     iter: Iter<'a, T>,
     idx: usize,
@@ -111,27 +109,33 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     }
 
     fn make_iter(&'a self, idx: usize) -> Iter<'a, T> {
-        let buffer: &'a [T];
-
-        let piece_idx = match self.idx_to_location(idx) {
-            PieceHead(piece_idx) |
-            PieceMid(piece_idx, _) |
-            PieceTail(piece_idx, _) => piece_idx,
-            EOF => self.adds.len(),
+        let (piece_idx, norm_idx) = match self.idx_to_location(idx) {
+            PieceHead(piece_idx) => (piece_idx, 0),
+            PieceMid(piece_idx, norm_idx) |
+            PieceTail(piece_idx, norm_idx) => (piece_idx, norm_idx),
+            EOF => {
+                // Need an iterator that just closes.
+                let it = self.adds[(0 .. 0)].iter();
+                return Iter {
+                    table: &self,
+                    piece_idx: self.pieces.len(),
+                    it: it,
+                }
+            },
         };
 
-        // TODO: can be cleaned up with option
-        if let Some(piece) = self.pieces.get(piece_idx) {
-            buffer = self.get_buffer(piece);
-        } else {
-            buffer = &[];
+        let piece = self.pieces[piece_idx];
+        let buf = self.get_buffer(&piece);
+        let mut it = buf[(piece.start .. piece.start + piece.length)].iter();
+
+        for _ in (0 .. norm_idx) {
+            it.next();
         }
 
         Iter {
             table: &self,
-            idx: idx,
             piece_idx: piece_idx,
-            buffer: buffer,
+            it: it,
         }
     }
 
@@ -377,22 +381,21 @@ impl<'a, T> Iterator for Iter<'a, T> {
     type Item = &'a T;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.table.pieces.get(self.piece_idx).map(|piece| {
-            let ret = self.buffer.get(piece.start + self.idx).unwrap();
+        if let Some(next) = self.it.next() {
+            Some(next)
+        } else {
+            self.piece_idx += 1;
 
-            self.idx += 1;
-            if self.idx >= piece.length {
-                self.idx = 0;
-                self.piece_idx += 1;
+            if self.piece_idx >= self.table.pieces.len() {
+                None
+            } else {
+                let piece = self.table.pieces[self.piece_idx];
+                let buf = self.table.get_buffer(&piece);
 
-                self.buffer = match self.table.pieces.get(self.piece_idx) {
-                    Some(p) => self.table.get_buffer(p),
-                    _ => &[],
-                };
+                self.it = buf[(piece.start .. piece.start + piece.length)].iter();
+                self.next()
             }
-
-            ret
-        })
+        }
     }
 }
 
