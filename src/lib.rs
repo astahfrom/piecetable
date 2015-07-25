@@ -17,6 +17,7 @@ enum Buffer {
     Original,
 }
 
+// TODO: consider just making PieceHead carry norm_idx=0 also, for simplicity elsewhere
 #[derive(PartialEq, Debug, Clone, Copy)]
 enum Location {
     PieceHead(usize),
@@ -41,6 +42,7 @@ pub struct PieceTable<'a, T: 'a> {
     last_idx: usize,
     length: usize,
     reusable_insert: Option<usize>,
+    reusable_remove: Option<Location>,
 }
 
 /// Struct for iterating the elements of a `PieceTable`.
@@ -75,6 +77,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
             last_idx: 0,
             length: 0,
             reusable_insert: None,
+            reusable_remove: None,
         }
     }
 
@@ -200,6 +203,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
             _ => self.raw_insert(idx, item),
         }
 
+        self.reusable_remove = None;
         self.last_idx = idx;
         self.length += 1;
     }
@@ -256,8 +260,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
 
     /// Remove the element at the given index.
     ///
-    /// `O(p)` operation, but removing just inserted indices sequentially is `O(1)`
-    /// and most remove operations are cheap.
+    /// `O(p)` operation initially, but removing sequentially backwards afterwards is `O(1)`.
     ///
     /// # Panics
     /// Panics if not `idx < len`.
@@ -267,9 +270,11 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     /// use piecetable::PieceTable;
     /// let src: Vec<i32> = (0..10).collect();
     /// let mut table = PieceTable::new().src(&src);
-    /// table.remove(5);
-    /// table.remove(6);
-    /// assert_eq!(vec![&0, &1, &2, &3, &4, &6, &8, &9], table.iter().collect::<Vec<&i32>>());
+    /// table.remove(5); // `O(p)`
+    /// table.remove(4); // `O(1)`
+    /// table.remove(3); // `O(1)`
+    /// table.remove(6); // `O(p)`
+    /// assert_eq!(vec![&0, &1, &2, &6, &7, &8], table.iter().collect::<Vec<&i32>>());
     /// ```
     pub fn remove(&mut self, idx: usize) {
         assert!(idx < self.length);
@@ -283,9 +288,15 @@ impl<'a, T: 'a> PieceTable<'a, T> {
                 if piece.length == 0 {
                     remove = Some(piece_idx);
                 }
+                self.reusable_remove = None;
             },
             _ => {
-                let location = self.idx_to_location(idx);
+                let location = if idx+1 == self.last_idx && self.reusable_remove.is_some() {
+                    self.reusable_remove.unwrap()
+                } else {
+                    self.idx_to_location(idx)
+                };
+
                 self.raw_remove(location);
             },
         }
@@ -301,48 +312,67 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     }
 
     fn raw_remove(&mut self, location: Location) {
+        self.reusable_remove = None;
+
         match location {
             PieceHead(piece_idx) => {
-                let remove: bool;
-                if let Some(piece) = self.pieces.get_mut(piece_idx) {
+                let remove = {
+                    let piece = &mut self.pieces[piece_idx];
                     piece.start += 1;
                     piece.length -= 1;
-                    remove = piece.length == 0;
-                } else {
-                    panic!("find_piece_idx returned invalid index");
-                }
+                    piece.length == 0
+                };
 
                 if remove {
                     self.pieces.remove(piece_idx);
+                }
+
+                if piece_idx > 0 {
+                    let idx = piece_idx-1;
+                    let len = self.pieces[idx].length;
+                    let loc = if len == 1 {
+                        PieceHead(idx)
+                    } else {
+                        PieceTail(idx, len-1)
+                    };
+
+                    self.reusable_remove = Some(loc);
                 }
             },
-            PieceTail(piece_idx, _) => {
-                let remove: bool;
-                if let Some(piece) = self.pieces.get_mut(piece_idx) {
-                    piece.length -= 1;
-                    remove = piece.length == 0;
-                } else {
-                    panic!("find_piece_idx returned invalid index");
-                }
+            PieceTail(piece_idx, norm_idx) => {
+                self.pieces[piece_idx].length -= 1;
 
-                if remove {
-                    self.pieces.remove(piece_idx);
+                if piece_idx > 0 {
+                    let loc = if norm_idx-1 == 0 {
+                        PieceHead(piece_idx)
+                    } else {
+                        PieceTail(piece_idx, norm_idx-1)
+                    };
+                    self.reusable_remove = Some(loc);
                 }
             },
             PieceMid(piece_idx, norm_idx) => {
-                let orig = self.pieces[piece_idx].clone();
-                if let Some(piece) = self.pieces.get_mut(piece_idx) {
-                    piece.length = norm_idx;
-                } else {
-                    panic!("find_piece_idx returned invalid index");
-                }
+                let orig = self.pieces[piece_idx];
+                self.pieces[piece_idx].length = norm_idx;
 
                 let start = norm_idx + 1;
-                self.pieces.insert(piece_idx+1, Piece {
-                    start: orig.start + start,
-                    length: orig.length - start,
-                    buffer: orig.buffer,
-                });
+                if orig.length - start > 0 {
+                    self.pieces.insert(piece_idx+1, Piece {
+                        start: orig.start + start,
+                        length: orig.length - start,
+                        buffer: orig.buffer,
+                    });
+                }
+
+                if piece_idx > 0 {
+                    let loc = if norm_idx-1 == 0 {
+                        PieceHead(piece_idx)
+                    } else {
+                        PieceMid(piece_idx, norm_idx-1)
+                    };
+
+                    self.reusable_remove = Some(loc);
+                }
             },
             EOF => {},
         }

@@ -140,17 +140,17 @@ fn empty_insert_remove_clustered_vec(b: &mut Bencher) {
 // - insert/remove scatter
 // - insert/remove clusters
 
-fn run_benchmark_fresh_table(b: &mut Bencher, commands: &[Command<i32>]) {
+fn run_benchmark_fresh_table(b: &mut Bencher, src: &[i32], commands: &[Command<i32>]) {
     b.iter(|| {
-        let mut table = PieceTable::new().src(SRC);
+        let mut table = PieceTable::new().src(src);
         run_commands_table(&mut table, commands);
     })
 }
 
-fn run_benchmark_fresh_vec(b: &mut Bencher, commands: &[Command<i32>]) {
+fn run_benchmark_fresh_vec(b: &mut Bencher, src: &[i32], commands: &[Command<i32>]) {
     b.iter(|| {
-        let mut vec = Vec::with_capacity(SRC.len());
-        vec.push_all(SRC); // Not sure if this is the best way to do this
+        let mut vec = Vec::with_capacity(src.len());
+        vec.push_all(src); // Not sure if this is the best way to do this
         run_commands_vec(&mut vec, commands);
     })
 }
@@ -190,37 +190,37 @@ fn fresh_insert_last_table(b: &mut Bencher) {
 #[bench]
 fn fresh_insert_scattered_table(b: &mut Bencher) {
     let recipe: InsertScattered<i32> = make_recipe(SEED, SIZE);
-    run_benchmark_fresh_table(b, &recipe.commands);
+    run_benchmark_fresh_table(b, SRC, &recipe.commands);
 }
 
 #[bench]
 fn fresh_insert_clustered_table(b: &mut Bencher) {
     let recipe: InsertClustered<i32> = make_recipe(SEED, SIZE);
-    run_benchmark_fresh_table(b, &recipe.commands);
+    run_benchmark_fresh_table(b, SRC, &recipe.commands);
 }
 
 #[bench]
 fn fresh_remove_scattered_table(b: &mut Bencher) {
     let recipe: RemoveScattered<i32> = make_recipe(SEED, SIZE);
-    run_benchmark_fresh_table(b, &recipe.commands);
+    run_benchmark_fresh_table(b, &recipe.data, &recipe.commands);
 }
 
 #[bench]
 fn fresh_remove_clustered_table(b: &mut Bencher) {
     let recipe: RemoveClustered<i32> = make_recipe(SEED, SIZE);
-    run_benchmark_fresh_table(b, &recipe.commands);
+    run_benchmark_fresh_table(b, &recipe.data, &recipe.commands);
 }
 
 #[bench]
 fn fresh_insert_remove_scattered_table(b: &mut Bencher) {
     let recipe: InsertRemoveScatteredEmpty<i32> = make_recipe(SEED, SIZE);
-    run_benchmark_fresh_table(b, &recipe.commands);
+    run_benchmark_fresh_table(b, SRC, &recipe.commands);
 }
 
 #[bench]
 fn fresh_insert_remove_clustered_table(b: &mut Bencher) {
     let recipe: InsertRemoveClusteredEmpty<i32> = make_recipe(SEED, SIZE);
-    run_benchmark_fresh_table(b, &recipe.commands);
+    run_benchmark_fresh_table(b, SRC, &recipe.commands);
 }
 
 // Vec
@@ -256,37 +256,37 @@ fn fresh_insert_last_vec(b: &mut Bencher) {
 #[bench]
 fn fresh_insert_scattered_vec(b: &mut Bencher) {
     let recipe: InsertScattered<i32> = make_recipe(SEED, SIZE);
-    run_benchmark_fresh_vec(b, &recipe.commands);
+    run_benchmark_fresh_vec(b, SRC, &recipe.commands);
 }
 
 #[bench]
 fn fresh_insert_clustered_vec(b: &mut Bencher) {
     let recipe: InsertClustered<i32> = make_recipe(SEED, SIZE);
-    run_benchmark_fresh_vec(b, &recipe.commands);
+    run_benchmark_fresh_vec(b, SRC, &recipe.commands);
 }
 
 #[bench]
 fn fresh_remove_scattered_vec(b: &mut Bencher) {
     let recipe: RemoveScattered<i32> = make_recipe(SEED, SIZE);
-    run_benchmark_fresh_vec(b, &recipe.commands);
+    run_benchmark_fresh_vec(b, &recipe.data, &recipe.commands);
 }
 
 #[bench]
 fn fresh_remove_clustered_vec(b: &mut Bencher) {
     let recipe: RemoveClustered<i32> = make_recipe(SEED, SIZE);
-    run_benchmark_fresh_vec(b, &recipe.commands);
+    run_benchmark_fresh_vec(b, &recipe.data, &recipe.commands);
 }
 
 #[bench]
 fn fresh_insert_remove_scattered_vec(b: &mut Bencher) {
     let recipe: InsertRemoveScatteredEmpty<i32> = make_recipe(SEED, SIZE);
-    run_benchmark_fresh_vec(b, &recipe.commands);
+    run_benchmark_fresh_vec(b, SRC, &recipe.commands);
 }
 
 #[bench]
 fn fresh_insert_remove_clustered_vec(b: &mut Bencher) {
     let recipe: InsertRemoveClusteredEmpty<i32> = make_recipe(SEED, SIZE);
-    run_benchmark_fresh_vec(b, &recipe.commands);
+    run_benchmark_fresh_vec(b, SRC, &recipe.commands);
 }
 
 // EDITED
