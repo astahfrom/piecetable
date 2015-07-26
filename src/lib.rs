@@ -226,19 +226,19 @@ impl<'a, T: 'a> PieceTable<'a, T> {
                 let orig = self.pieces[piece_idx].clone();
                 self.pieces[piece_idx].length = norm_idx;
 
-                self.pieces.insert(piece_idx+1, Piece {
-                    start: item_idx,
-                    length: 1,
-                    buffer: Add,
-                });
+                push_all_at(&mut self.pieces, piece_idx+1, &vec![
+                    Piece {
+                        start: item_idx,
+                        length: 1,
+                        buffer: Add,
+                    },
+                    Piece {
+                        start: orig.start + norm_idx,
+                        length: orig.length - norm_idx,
+                        buffer: orig.buffer,
+                    }]);
 
                 self.reusable_insert = Some(piece_idx+1);
-
-                self.pieces.insert(piece_idx+2, Piece {
-                    start: orig.start + norm_idx,
-                    length: orig.length - norm_idx,
-                    buffer: orig.buffer,
-                });
             },
             EOF => {
                 let piece_idx = self.pieces.len();
@@ -432,5 +432,24 @@ impl<'a, T> Index<usize> for PieceTable<'a, T> {
             Add => &self.adds[piece.start + norm_idx],
             Original => &self.original[piece.start + norm_idx],
         }
+    }
+}
+
+fn push_all_at<T>(v: &mut Vec<T>, offset: usize, s: &[T]) where T: Copy {
+    match (v.len(), s.len()) {
+        (_, 0) => (),
+        (current_len, _) => {
+            v.reserve_exact(s.len());
+            unsafe {
+                v.set_len(current_len + s.len());
+                let to_move = current_len - offset;
+                let src = v.as_mut_ptr().offset(offset as isize);
+                if to_move > 0 {
+                    let dst = src.offset(s.len() as isize);
+                    std::ptr::copy(src, dst, to_move);
+                }
+                std::ptr::copy_nonoverlapping(s.as_ptr(), src, s.len());
+            }
+        },
     }
 }
