@@ -20,7 +20,6 @@ enum Buffer {
     Original,
 }
 
-// TODO: consider just making PieceHead carry norm_idx=0 also, for simplicity elsewhere
 #[derive(PartialEq, Debug, Clone, Copy)]
 enum Location {
     PieceHead(usize),
@@ -44,7 +43,7 @@ pub struct PieceTable<'a, T: 'a> {
     pieces: Vec<Piece>,
     last_idx: usize,
     length: usize,
-    reusable_insert: Option<usize>,
+    reusable_insert: Option<(usize, bool)>,
     reusable_remove: Option<Location>,
 }
 
@@ -213,11 +212,14 @@ impl<'a, T: 'a> PieceTable<'a, T> {
         assert!(idx <= self.length);
 
         match self.reusable_insert {
-            Some(piece_idx) if idx == self.last_idx+1 => {
-                let piece = &mut self.pieces[piece_idx];
-                self.adds.push(item);
-                piece.length += 1;
-            }
+            Some((piece_idx, ref mut inserted))
+                if (idx == self.last_idx+1 && *inserted)
+                || (idx == self.last_idx && !*inserted) => {
+                    let piece = &mut self.pieces[piece_idx];
+                    self.adds.push(item);
+                    piece.length += 1;
+                    *inserted = true;
+                }
             _ => self.raw_insert(idx, item),
         }
 
@@ -238,7 +240,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
                     buffer: Add,
                 });
 
-                self.reusable_insert = Some(piece_idx);
+                self.reusable_insert = Some((piece_idx, true));
             },
             PieceMid(piece_idx, norm_idx) | PieceTail(piece_idx, norm_idx) => {
                 let orig = self.pieces[piece_idx].clone();
@@ -256,7 +258,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
                         buffer: orig.buffer,
                     }]);
 
-                self.reusable_insert = Some(piece_idx+1);
+                self.reusable_insert = Some((piece_idx+1, true));
             },
             EOF => {
                 let piece_idx = self.pieces.len();
@@ -267,7 +269,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
                     buffer: Add,
                 });
 
-                self.reusable_insert = Some(piece_idx);
+                self.reusable_insert = Some((piece_idx, true));
             }
         }
     }
@@ -292,15 +294,50 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     /// ```
     pub fn remove(&mut self, idx: usize) {
         assert!(idx < self.length);
+        let remove: Option<usize>;
 
-        self.reusable_insert = None;
+        match self.reusable_insert {
+            Some((piece_idx, ref mut inserted))
+                if (idx+1 == self.last_idx && !*inserted)
+                || (idx == self.last_idx && *inserted) => {
+                    let piece = &mut self.pieces[piece_idx];
+                    piece.length -= 1;
+                    self.adds.pop();
 
-        let location = match self.reusable_remove {
-            Some(loc) if idx+1 == self.last_idx => loc,
-            _ => self.idx_to_location(idx),
-        };
+                    self.reusable_remove = None;
+                    remove = if piece.length == 0 { Some(piece_idx) } else { None };
 
-        self.raw_remove(location);
+                    *inserted = false;
+                },
+            _ => {
+                let location = match self.reusable_remove {
+                    Some(loc) if idx+1 == self.last_idx => loc,
+                    _ => self.idx_to_location(idx),
+                };
+
+                self.raw_remove(location);
+
+                self.reusable_insert = None;
+                remove = None;
+            }
+        }
+
+        if let Some(piece_idx) = remove {
+            self.pieces.remove(piece_idx);
+            self.reusable_insert = None;
+
+            if piece_idx > 0 {
+                let idx = piece_idx-1;
+                let len = self.pieces[idx].length;
+                let loc = if len == 1 {
+                    PieceHead(idx)
+                } else {
+                    PieceTail(idx, len-1)
+                };
+
+                self.reusable_remove = Some(loc);
+            }
+        }
 
         self.last_idx = idx;
         self.length -= 1;
