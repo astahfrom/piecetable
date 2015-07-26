@@ -224,11 +224,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
             },
             PieceMid(piece_idx, norm_idx) | PieceTail(piece_idx, norm_idx) => {
                 let orig = self.pieces[piece_idx].clone();
-                if let Some(piece) = self.pieces.get_mut(piece_idx) {
-                    piece.length = norm_idx;
-                } else {
-                    panic!("find_piece_idx returned invalid index.");
-                }
+                self.pieces[piece_idx].length = norm_idx;
 
                 self.pieces.insert(piece_idx+1, Piece {
                     start: item_idx,
@@ -279,33 +275,14 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     pub fn remove(&mut self, idx: usize) {
         assert!(idx < self.length);
 
-        let mut remove: Option<usize> = None;
-
-        match self.reusable_insert {
-            Some(piece_idx) if idx == self.last_idx => {
-                let piece = &mut self.pieces[piece_idx];
-                piece.length -= 1;
-                if piece.length == 0 {
-                    remove = Some(piece_idx);
-                }
-                self.reusable_remove = None;
-            },
-            _ => {
-                let location = if idx+1 == self.last_idx && self.reusable_remove.is_some() {
-                    self.reusable_remove.unwrap()
-                } else {
-                    self.idx_to_location(idx)
-                };
-
-                self.raw_remove(location);
-            },
-        }
-
         self.reusable_insert = None;
 
-        if let Some(piece_idx) = remove {
-            self.pieces.remove(piece_idx);
-        }
+        let location = match self.reusable_remove {
+            Some(loc) if idx+1 == self.last_idx => loc,
+            _ => self.idx_to_location(idx),
+        };
+
+        self.raw_remove(location);
 
         self.last_idx = idx;
         self.length -= 1;
