@@ -1,5 +1,6 @@
 #![feature(plugin)]
 #![plugin(quickcheck_macros)]
+#![feature(collections_bound)]
 
 extern crate rand;
 extern crate quickcheck;
@@ -155,14 +156,16 @@ fn indexing(recipe: InsertRemoveScatteredEmpty<i32>) -> bool {
 // TODO: make generator for ranges to test this properly or something
 #[test]
 fn ranges() {
+    use std::collections::Bound::*;
+
     let src = (0..10).collect::<Vec<i32>>();
     let mut table = PieceTable::new().src(&src);
 
-    assert_eq!(vec![&0, &1, &2, &3, &4], table.range(0, 5).collect::<Vec<&i32>>());
+    assert_eq!(vec![&0, &1, &2, &3, &4], table.range(Unbounded, Excluded(5)).collect::<Vec<&i32>>());
 
-    assert_eq!(vec![&7, &8, &9], table.range(7, 10).collect::<Vec<&i32>>());
+    assert_eq!(vec![&7, &8, &9], table.range(Excluded(6), Included(9)).collect::<Vec<&i32>>());
 
     table.insert(3, 42);
 
-    assert_eq!(vec![&2, &42, &3], table.range(2, 5).collect::<Vec<&i32>>());
+    assert_eq!(vec![&2, &42, &3], table.range(Included(2), Excluded(5)).collect::<Vec<&i32>>());
 }

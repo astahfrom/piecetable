@@ -5,8 +5,11 @@
 //! A table of pieces pointing either to the source or add-buffer is maintained, and these pieces are manipulated when inserting and removing text.
 //! Asymptotics in the following are based on `p`, the number of pieces, where `p` should be strictly smaller than the number of elements when used as intended.
 
+#![feature(collections_bound)]
+
 use std::iter::Iterator;
 use std::ops::Index;
+use std::collections::Bound;
 
 use Buffer::*;
 use Location::*;
@@ -153,17 +156,32 @@ impl<'a, T: 'a> PieceTable<'a, T> {
         self.make_iter(0)
     }
 
-    /// Return an iterator over the range `[from, to)` in the `PieceTable`.
-    /// Construction the iterator takes `O(p)` time, but consuming it is constant time per element.
+    /// Return an iterator over the bound range in the `PieceTable`.
+    /// Constructing the iterator takes `O(p)` time, but consuming it is constant time per element.
     ///
     /// # Example
     /// ```
+    /// #![feature(collections_bound)]
     /// use piecetable::PieceTable;
+    /// use std::collections::Bound::*;
     /// let src: Vec<i32> = (0..100).collect();
     /// let table = PieceTable::new().src(&src);
-    /// assert_eq!(vec![&55, &56, &57], table.range(55, 58).collect::<Vec<&i32>>());
+    /// assert_eq!(vec![&55, &56, &57], table.range(Included(55), Excluded(58)).collect::<Vec<&i32>>());
     /// ```
-    pub fn range(&'a self, from: usize, to: usize) -> Range<'a, T> {
+    pub fn range(&'a self, min: Bound<usize>, max: Bound<usize>) -> Range<'a, T> {
+        let from = match min {
+            Bound::Included(x) => x,
+            Bound::Excluded(x) => x+1,
+            Bound::Unbounded => 0,
+        };
+
+        let to = match max {
+            Bound::Included(x) => x+1,
+            Bound::Excluded(x) => x,
+            Bound::Unbounded => self.length,
+        };
+
+
         let iter = self.make_iter(from);
 
         Range {
