@@ -14,13 +14,13 @@ use std::collections::Bound;
 use Buffer::*;
 use Location::*;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Hash)]
 enum Buffer {
     Add,
     Original,
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy, Hash)]
 enum Location {
     PieceHead(usize),
     PieceMid(usize, usize),
@@ -28,7 +28,7 @@ enum Location {
     EOF,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Hash)]
 struct Piece {
     start: usize,
     length: usize,
@@ -36,7 +36,7 @@ struct Piece {
 }
 
 /// The `PieceTable` type with all relevant methods.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash)]
 pub struct PieceTable<'a, T: 'a> {
     original: &'a [T],
     adds: Vec<T>,
@@ -72,15 +72,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     /// let table: PieceTable<char> = PieceTable::new();
     /// ```
     pub fn new() -> PieceTable<'a, T> {
-        PieceTable {
-            original: &[],
-            adds: Vec::new(),
-            pieces: Vec::new(),
-            last_idx: 0,
-            length: 0,
-            reusable_insert: None,
-            reusable_remove: None,
-        }
+        Default::default()
     }
 
     /// Assign a read-only source to an existing `PieceTable`.
@@ -506,5 +498,19 @@ fn push_all_at<T>(v: &mut Vec<T>, offset: usize, s: &[T]) where T: Copy {
                 std::ptr::copy_nonoverlapping(s.as_ptr(), src, s.len());
             }
         },
+    }
+}
+
+impl<'a, T> Default for PieceTable<'a, T> {
+    fn default() -> PieceTable<'a, T> {
+        PieceTable {
+            original: &[],
+            adds: Vec::new(),
+            pieces: Vec::new(),
+            last_idx: 0,
+            length: 0,
+            reusable_insert: None,
+            reusable_remove: None,
+        }
     }
 }
