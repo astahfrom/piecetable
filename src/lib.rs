@@ -75,6 +75,21 @@ impl<'a, T: 'a> PieceTable<'a, T> {
         Default::default()
     }
 
+    /// Constructs a new, empty `PieceTable<T>` with the specified capacity for elements and pieces.
+    /// Sequential insertion of `data_capacity` elements will be possible without reallocation.
+    /// Scattered operations results in pieces being added; the created piece table will be able to store `piece_capacity` of these before reallocating.
+    pub fn with_capacity(data_capacity: usize, piece_capacity: usize) -> PieceTable<'a, T> {
+        PieceTable {
+            original: &[],
+            adds: Vec::with_capacity(data_capacity),
+            pieces: Vec::with_capacity(piece_capacity),
+            last_idx: 0,
+            length: 0,
+            reusable_insert: None,
+            reusable_remove: None,
+        }
+    }
+
     /// Assign a read-only source to an existing `PieceTable`.
     ///
     /// # Example
@@ -103,6 +118,41 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     /// The number of elements stored in the piece table.
     pub fn len(&self) -> usize {
         self.length
+    }
+
+    // Returns `true` if the piece table contains no elements.
+    pub fn is_empty(&self) -> bool {
+        self.length == 0
+    }
+
+    /// Returns the number of elements sequentially inserted the piece table can hold without reallocating.
+    pub fn capacity_data(&self) -> usize {
+        self.adds.capacity()
+    }
+
+    /// Returns the number of pieces (created by scattered operations), the piece table can hold without reallocating.
+    pub fn capacity_pieces(&self) -> usize {
+        self.pieces.capacity()
+    }
+
+    /// Reserves capacity for at least `additional` more elements to be inserted.
+    /// The collection may reserve more space to avoid frequent reallocations.
+    pub fn reserve_data(&mut self, additional: usize) {
+        self.adds.reserve(additional);
+    }
+
+    /// Reserves capacity for at least `additional` more pieces to be created.
+    /// The collection may reserve more space to avoid frequent reallocations.
+    pub fn reserve_piece(&mut self, additional: usize) {
+        self.pieces.reserve(additional);
+    }
+
+    /// Clears the piece table, removing all elements.
+    /// Also removes reference to any given `src`.
+    pub fn clear(&mut self) {
+        self.original = &[];
+        self.adds.clear();
+        self.pieces.clear();
     }
 
     fn make_iter(&'a self, idx: usize) -> Iter<'a, T> {

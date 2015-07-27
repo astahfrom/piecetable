@@ -11,6 +11,8 @@ use generators::*;
 
 use piecetable::PieceTable;
 
+const CLUSTER_RATIO: usize = 10; // Don't want to allocate needlessly
+
 // Note: These also implicitly test the iterator.
 
 // TODO: These shrink poorly
@@ -49,28 +51,30 @@ fn test_commands<T>(table: &mut PieceTable<T>,
 
 #[quickcheck]
 fn insert_scattered(recipe: InsertScattered<i32>) -> bool {
-    test_commands(&mut PieceTable::new(),
-                  &mut Vec::with_capacity(recipe.commands.len()),
+    let n = recipe.commands.len();
+    test_commands(&mut PieceTable::with_capacity(n, n),
+                  &mut Vec::with_capacity(n),
                   &recipe.commands)
 }
 
 #[quickcheck]
 fn insert_clustered(recipe: InsertClustered<i32>) -> bool {
-    test_commands(&mut PieceTable::new(),
-                  &mut Vec::with_capacity(recipe.commands.len()),
+    let n = recipe.commands.len();
+    test_commands(&mut PieceTable::with_capacity(n, n/CLUSTER_RATIO),
+                  &mut Vec::with_capacity(n),
                   &recipe.commands)
 }
 
 #[quickcheck]
 fn remove_scattered(recipe: RemoveScattered<i32>) -> bool {
-    test_commands(&mut PieceTable::new().src(&recipe.data),
+    test_commands(&mut PieceTable::with_capacity(0, recipe.data.len()).src(&recipe.data),
                   &mut recipe.data.clone(),
                   &recipe.commands)
 }
 
 #[quickcheck]
 fn remove_clustered(recipe: RemoveClustered<i32>) -> bool {
-    test_commands(&mut PieceTable::new().src(&recipe.data),
+    test_commands(&mut PieceTable::with_capacity(0, recipe.data.len()/CLUSTER_RATIO).src(&recipe.data),
                   &mut recipe.data.clone(),
                   &recipe.commands)
 }
@@ -78,28 +82,32 @@ fn remove_clustered(recipe: RemoveClustered<i32>) -> bool {
 
 #[quickcheck]
 fn insert_remove_scattered_empty(recipe: InsertRemoveScatteredEmpty<i32>) -> bool {
-    test_commands(&mut PieceTable::new(),
-                  &mut Vec::with_capacity(recipe.elements),
+    let n = recipe.elements;
+    test_commands(&mut PieceTable::with_capacity(n, n),
+                  &mut Vec::with_capacity(n),
                   &recipe.commands)
 }
 
 #[quickcheck]
 fn insert_remove_scattered_given(recipe: InsertRemoveScatteredGiven<i32>) -> bool {
-    test_commands(&mut PieceTable::new().src(&recipe.data),
+    let n = recipe.data.len();
+    test_commands(&mut PieceTable::with_capacity(n, n).src(&recipe.data),
                   &mut recipe.data.clone(),
                   &recipe.commands)
 }
 
 #[quickcheck]
 fn insert_remove_clustered_empty(recipe: InsertRemoveClusteredEmpty<i32>) -> bool {
-    test_commands(&mut PieceTable::new(),
-                  &mut Vec::with_capacity(recipe.elements),
+    let n = recipe.elements;
+    test_commands(&mut PieceTable::with_capacity(n, n/CLUSTER_RATIO),
+                  &mut Vec::with_capacity(n),
                   &recipe.commands)
 }
 
 #[quickcheck]
 fn insert_remove_clustered_given(recipe: InsertRemoveClusteredGiven<i32>) -> bool {
-    test_commands(&mut PieceTable::new().src(&recipe.data),
+    let n = recipe.data.len();
+    test_commands(&mut PieceTable::with_capacity(n, n/CLUSTER_RATIO).src(&recipe.data),
                   &mut recipe.data.clone(),
                   &recipe.commands)
 }
@@ -130,7 +138,7 @@ fn insert_linear_then_remove() {
 fn indexing(recipe: InsertRemoveScatteredEmpty<i32>) -> bool {
     let commands = recipe.commands;
 
-    let mut table = PieceTable::new();
+    let mut table = PieceTable::with_capacity(commands.len(), commands.len());
     let mut expected = Vec::with_capacity(commands.len());
 
     for cmd in commands {
@@ -164,7 +172,7 @@ fn indexing(recipe: InsertRemoveScatteredEmpty<i32>) -> bool {
 fn ranges(recipe: Ranges<i32>) -> bool {
     use std::collections::Bound::*;
 
-    let mut table = PieceTable::new();
+    let mut table = PieceTable::with_capacity(recipe.elements, recipe.elements);
     let mut expected = Vec::with_capacity(recipe.elements);
 
     run_commands(&mut table, &mut expected, &recipe.commands);
@@ -207,10 +215,14 @@ fn from_iter(vec: Vec<i32>) -> bool {
 
 #[quickcheck]
 fn extend(recipe: InsertScattered<i32>, vec: Vec<i32>) -> bool {
-    let mut table = PieceTable::new();
-    let mut expected = Vec::with_capacity(recipe.commands.len());
+    let n = recipe.commands.len();
+    let mut table = PieceTable::with_capacity(n, n);
+    let mut expected = Vec::with_capacity(n);
 
     run_commands(&mut table, &mut expected, &recipe.commands);
+
+    table.reserve_data(vec.len());
+    expected.reserve(vec.len());
 
     table.extend(vec.iter().map(|&x| x));
     expected.extend(vec.iter().map(|&x| x));
@@ -220,7 +232,7 @@ fn extend(recipe: InsertScattered<i32>, vec: Vec<i32>) -> bool {
 
 #[quickcheck]
 fn push(data: Vec<i32>) -> bool {
-    let mut table = PieceTable::new();
+    let mut table = PieceTable::with_capacity(data.len(), 1);
     let mut expected = Vec::with_capacity(data.len());
 
     for x in data {
