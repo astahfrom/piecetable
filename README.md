@@ -6,8 +6,7 @@ Implementation of a piece table in Rust for storing text for efficient editing.
 
 Based on [this paper](https://www.cs.unm.edu/~crowley/papers/sds.pdf).
 
-Tested with the excellent [quickcheck](https://github.com/BurntSushi/quickcheck), but still a work in progress.
-There are some things around ownership and iterators that need more thought.
+Tested with the excellent [quickcheck](https://github.com/BurntSushi/quickcheck), whose generators are also used for benchmarks (with a fixed seed).
 
 # Benchmarks
 
