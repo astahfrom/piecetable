@@ -477,3 +477,29 @@ fn edited_insert_remove_clustered_vec(b: &mut Bencher) {
     let recipe: InsertRemoveClusteredEmpty<i32> = make_recipe(SEED, SIZE);
     run_benchmark_edited_vec(b, &recipe.commands);
 }
+
+#[bench]
+fn push_table(b: &mut Bencher) {
+    let data: Vec<i32> = make_recipe(SEED, SIZE);
+
+    b.iter(|| {
+        let mut table = PieceTable::new();
+
+        for x in &data {
+            table.push(x);
+        }
+    });
+}
+
+#[bench]
+fn push_vec(b: &mut Bencher) {
+    let data: Vec<i32> = make_recipe(SEED, SIZE);
+
+    b.iter(|| {
+        let mut vec = Vec::new();
+
+        for x in &data {
+            vec.push(x);
+        }
+    });
+}

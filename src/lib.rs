@@ -402,6 +402,25 @@ impl<'a, T: 'a> PieceTable<'a, T> {
         }
     }
 
+    /// Appends an element to the back, efficiently and in constant time.
+    pub fn push(&mut self, value: T) {
+        let reuse = self.pieces.last().map_or
+            (false, |last| last.buffer == Add
+             && last.start+last.length == self.adds.len());
+
+        self.adds.push(value);
+
+        if reuse {
+            self.pieces.last_mut().unwrap().length += 1;
+        } else {
+            self.pieces.push(Piece {
+                start: self.adds.len()-1,
+                length: 1,
+                buffer: Add,
+            });
+        }
+    }
+
     fn idx_to_location(&self, idx: usize) -> Location {
         let mut offset = 0;
         for (i, piece) in self.pieces.iter().enumerate() {

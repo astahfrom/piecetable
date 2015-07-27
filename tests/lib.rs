@@ -30,6 +30,13 @@ fn run_commands<T: Copy>(table: &mut PieceTable<T>, vec: &mut Vec<T>, commands: 
     }
 }
 
+fn table_slice_equal<T: PartialEq>(table: &PieceTable<T>, slice: &[T]) -> bool {
+    let slice_vec = slice.iter().collect::<Vec<&T>>();
+    let table_vec = table.iter().collect::<Vec<&T>>();
+
+    slice_vec == table_vec
+}
+
 fn test_commands<T>(table: &mut PieceTable<T>,
                     expected: &mut Vec<T>,
                     commands: &[Command<T>]) -> bool
@@ -37,10 +44,7 @@ fn test_commands<T>(table: &mut PieceTable<T>,
 {
     run_commands(table, expected, commands);
 
-    let expected_vec = expected.iter().collect::<Vec<&T>>();
-    let table_vec = table.iter().collect::<Vec<&T>>();
-
-    expected_vec == table_vec
+    table_slice_equal(&table, &expected)
 }
 
 #[quickcheck]
@@ -197,24 +201,32 @@ fn from_iter(vec: Vec<i32>) -> bool {
     let table: PieceTable<_> = FromIterator::from_iter(vec.iter());
     let expected: Vec<_> = FromIterator::from_iter(vec.iter());
 
-    let expected_vec = expected.iter().collect::<Vec<_>>();
-    let table_vec = table.iter().collect::<Vec<_>>();
 
-    expected_vec == table_vec
+    table_slice_equal(&table, &expected)
 }
 
 #[quickcheck]
 fn extend(recipe: InsertScattered<i32>, vec: Vec<i32>) -> bool {
     let mut table = PieceTable::new();
-    let mut expected= Vec::with_capacity(recipe.commands.len());
+    let mut expected = Vec::with_capacity(recipe.commands.len());
 
     run_commands(&mut table, &mut expected, &recipe.commands);
 
     table.extend(vec.iter().map(|&x| x));
     expected.extend(vec.iter().map(|&x| x));
 
-    let expected_vec = expected.iter().collect::<Vec<_>>();
-    let table_vec = table.iter().collect::<Vec<_>>();
+    table_slice_equal(&table, &expected)
+}
 
-    expected_vec == table_vec
+#[quickcheck]
+fn push(data: Vec<i32>) -> bool {
+    let mut table = PieceTable::new();
+    let mut expected = Vec::with_capacity(data.len());
+
+    for x in data {
+        table.push(x);
+        expected.push(x);
+    }
+
+    table_slice_equal(&table, &expected)
 }
