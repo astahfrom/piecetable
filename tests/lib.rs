@@ -9,30 +9,33 @@ extern crate piecetable;
 mod generators;
 use generators::*;
 
-use quickcheck::{Arbitrary};
 use piecetable::PieceTable;
 
 // Note: These also implicitly test the iterator.
 
 // TODO: These shrink poorly
 
-fn test_commands<T>(table: &mut PieceTable<T>,
-                    expected: &mut Vec<T>,
-                    commands: &[Command<T>]) -> bool
-    where T: Arbitrary + PartialEq + Copy + std::fmt::Debug
-{
+fn run_commands<T: Copy>(table: &mut PieceTable<T>, vec: &mut Vec<T>, commands: &[Command<T>]) {
     for &cmd in commands {
         match cmd {
             Insert(idx, value) => {
-                expected.insert(idx, value);
+                vec.insert(idx, value);
                 table.insert(idx, value);
             },
             Remove(idx) => {
-                expected.remove(idx);
+                vec.remove(idx);
                 table.remove(idx);
             },
         }
     }
+}
+
+fn test_commands<T>(table: &mut PieceTable<T>,
+                    expected: &mut Vec<T>,
+                    commands: &[Command<T>]) -> bool
+    where T: PartialEq + Copy
+{
+    run_commands(table, expected, commands);
 
     let expected_vec = expected.iter().collect::<Vec<&T>>();
     let table_vec = table.iter().collect::<Vec<&T>>();
@@ -153,19 +156,36 @@ fn indexing(recipe: InsertRemoveScatteredEmpty<i32>) -> bool {
     true
 }
 
-// TODO: make generator for ranges to test this properly or something
-#[test]
-fn ranges() {
+#[quickcheck]
+fn ranges(recipe: Ranges<i32>) -> bool {
     use std::collections::Bound::*;
 
-    let src = (0..10).collect::<Vec<i32>>();
-    let mut table = PieceTable::new().src(&src);
+    let mut table = PieceTable::new();
+    let mut expected = Vec::with_capacity(recipe.elements);
 
-    assert_eq!(vec![&0, &1, &2, &3, &4], table.range(Unbounded, Excluded(5)).collect::<Vec<&i32>>());
+    run_commands(&mut table, &mut expected, &recipe.commands);
 
-    assert_eq!(vec![&7, &8, &9], table.range(Excluded(6), Included(9)).collect::<Vec<&i32>>());
+    for (from, to) in recipe.ranges {
+        let table_vec = table.range(from, to).map(|&x| x).collect::<Vec<i32>>();
 
-    table.insert(3, 42);
+        let x = match from {
+            Included(a) => a,
+            Excluded(a) => a+1,
+            Unbounded => 0,
+        };
 
-    assert_eq!(vec![&2, &42, &3], table.range(Included(2), Excluded(5)).collect::<Vec<&i32>>());
+        let y = match to {
+            Included(b) => b+1,
+            Excluded(b) => b,
+            Unbounded => expected.len(),
+        };
+
+        let expected_vec = expected[(x .. y)].to_vec();
+
+        if table_vec != expected_vec {
+            return false
+        }
+    }
+
+    true
 }

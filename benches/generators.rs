@@ -1,7 +1,11 @@
+#![allow(unused_attributes)]
+#![feature(collections_bound)]
+
 extern crate rand;
 extern crate quickcheck;
 
 use std::cmp;
+use std::collections::Bound;
 use self::rand::{Rng, SeedableRng, StdRng};
 use self::quickcheck::{Arbitrary, Gen, StdGen};
 
@@ -68,6 +72,13 @@ pub struct InsertRemoveClusteredEmpty<T: Arbitrary> {
 pub struct InsertRemoveClusteredGiven<T: Arbitrary> {
     pub data: Vec<T>,
     pub commands: Vec<Command<T>>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Ranges<T: Arbitrary> {
+    pub commands: Vec<Command<T>>,
+    pub ranges: Vec<(Bound<usize>, Bound<usize>)>,
+    pub elements: usize,
 }
 
 impl<T: Arbitrary> Arbitrary for InsertScattered<T> {
@@ -268,6 +279,40 @@ impl<T: Arbitrary> Arbitrary for InsertRemoveClusteredGiven<T> {
         InsertRemoveClusteredGiven {
             data: data,
             commands: commands,
+        }
+    }
+}
+
+impl<T: Arbitrary> Arbitrary for Ranges<T> {
+    fn arbitrary<G: Gen>(g: &mut G) -> Self {
+        use std::collections::Bound::*;
+
+        let x = g.size();
+        let recipe: InsertRemoveScatteredEmpty<T> = Arbitrary::arbitrary(g);
+        let n = recipe.elements;
+        let mut ranges = Vec::with_capacity(n);
+
+        for _ in (0 .. x) {
+            let from_idx = g.gen_range(0, n-1);
+            let froms = [Included(from_idx), Excluded(from_idx), Unbounded];
+            let from = g.choose(&froms).unwrap();
+
+            let to_idx = match *from {
+                Included(a) => g.gen_range(a, n),
+                Excluded(a) => g.gen_range(a+1, n),
+                Unbounded => g.gen_range(0, n),
+            };
+
+            let tos = [Included(to_idx), Excluded(to_idx), Unbounded];
+            let to = g.choose(&tos).unwrap();
+
+            ranges.push((*from, *to));
+        }
+
+        Ranges {
+            commands: recipe.commands,
+            ranges: ranges,
+            elements: recipe.elements,
         }
     }
 }

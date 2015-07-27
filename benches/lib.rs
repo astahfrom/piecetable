@@ -1,3 +1,4 @@
+#![feature(collections_bound)]
 #![feature(test)]
 #![feature(vec_push_all)]
 
