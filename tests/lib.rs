@@ -189,3 +189,16 @@ fn ranges(recipe: Ranges<i32>) -> bool {
 
     true
 }
+
+#[quickcheck]
+fn from_iter(vec: Vec<i32>) -> bool {
+    use std::iter::FromIterator;
+
+    let table: PieceTable<_> = FromIterator::from_iter(vec.iter());
+    let expected: Vec<_> = FromIterator::from_iter(vec.iter());
+
+    let expected_vec = expected.iter().collect::<Vec<_>>();
+    let table_vec = table.iter().collect::<Vec<_>>();
+
+    expected_vec == table_vec
+}

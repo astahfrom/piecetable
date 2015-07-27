@@ -462,6 +462,23 @@ impl<'a, T> Iterator for Range<'a, T> {
     }
 }
 
+impl<'a, T> std::iter::FromIterator<T> for PieceTable<'a, T> {
+    fn from_iter<I>(iterable: I) -> PieceTable<'a, T> where I: IntoIterator<Item=T> {
+        use std::iter::FromIterator;
+
+        let mut table = PieceTable::new();
+        table.adds = FromIterator::from_iter(iterable);
+
+        table.pieces = vec![Piece {
+            start: 0,
+            length: table.adds.len(),
+            buffer: Add,
+        }];
+
+        table
+    }
+}
+
 impl<'a, T> Index<usize> for PieceTable<'a, T> {
     type Output = T;
 
