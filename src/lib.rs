@@ -479,6 +479,20 @@ impl<'a, T> std::iter::FromIterator<T> for PieceTable<'a, T> {
     }
 }
 
+impl<'a, T> std::iter::Extend<T> for PieceTable<'a, T> {
+    fn extend<I>(&mut self, iterable: I) where I: IntoIterator<Item=T> {
+        let start = self.adds.len();
+        self.adds.extend(iterable);
+        let length = self.adds.len() - start;
+
+        self.pieces.push(Piece {
+            start: start,
+            length: length,
+            buffer: Add,
+        });
+    }
+}
+
 impl<'a, T> Index<usize> for PieceTable<'a, T> {
     type Output = T;
 

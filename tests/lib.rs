@@ -202,3 +202,19 @@ fn from_iter(vec: Vec<i32>) -> bool {
 
     expected_vec == table_vec
 }
+
+#[quickcheck]
+fn extend(recipe: InsertScattered<i32>, vec: Vec<i32>) -> bool {
+    let mut table = PieceTable::new();
+    let mut expected= Vec::with_capacity(recipe.commands.len());
+
+    run_commands(&mut table, &mut expected, &recipe.commands);
+
+    table.extend(vec.iter().map(|&x| x));
+    expected.extend(vec.iter().map(|&x| x));
+
+    let expected_vec = expected.iter().collect::<Vec<_>>();
+    let table_vec = table.iter().collect::<Vec<_>>();
+
+    expected_vec == table_vec
+}
