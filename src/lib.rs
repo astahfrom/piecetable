@@ -6,6 +6,9 @@
 //! Asymptotics in the following are based on `p`, the number of pieces, where `p` should be strictly smaller than the number of elements when used as intended.
 
 #![feature(collections_bound)]
+
+use std::iter::Iterator;
+use std::ops::Index;
 use std::collections::Bound;
 
 use Buffer::*;
@@ -35,7 +38,7 @@ struct Piece {
 /// The `PieceTable` type with all relevant methods.
 #[derive(Debug, Clone, Hash)]
 pub struct PieceTable<'a, T: 'a> {
-    original: Option<&'a [T]>,
+    original: &'a [T],
     adds: Vec<T>,
     pieces: Vec<Piece>,
     last_idx: usize,
@@ -77,7 +80,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     /// Scattered operations results in pieces being added; the created piece table will be able to store `piece_capacity` of these before reallocating.
     pub fn with_capacity(data_capacity: usize, piece_capacity: usize) -> PieceTable<'a, T> {
         PieceTable {
-            original: None,
+            original: &[],
             adds: Vec::with_capacity(data_capacity),
             pieces: Vec::with_capacity(piece_capacity),
             last_idx: 0,
@@ -105,7 +108,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
             });
         }
 
-        self.original = Some(src);
+        self.original = src;
         self.pieces = pieces;
         self.length = src.len();
 
@@ -147,7 +150,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     /// Clears the piece table, removing all elements.
     /// Also removes reference to any given `src`.
     pub fn clear(&mut self) {
-        self.original = None;
+        self.original = &[];
         self.adds.clear();
         self.pieces.clear();
     }
@@ -493,7 +496,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
     fn get_buffer(&'a self, piece: &Piece) -> &'a [T] {
         match piece.buffer {
             Add => &self.adds,
-            Original => self.original.unwrap(),
+            Original => self.original,
         }
     }
 }
@@ -568,7 +571,7 @@ impl<'a, T> std::iter::Extend<T> for PieceTable<'a, T> {
     }
 }
 
-impl<'a, T> std::ops::Index<usize> for PieceTable<'a, T> {
+impl<'a, T> Index<usize> for PieceTable<'a, T> {
     type Output = T;
 
     /// Note: Reading an index takes `O(p)` time, use iterators for fast sequential access.
@@ -581,8 +584,10 @@ impl<'a, T> std::ops::Index<usize> for PieceTable<'a, T> {
         };
 
         let ref piece = self.pieces[piece_idx];
-        let buffer = self.get_buffer(piece);
-        &buffer[piece.start + norm_idx]
+        match piece.buffer {
+            Add => &self.adds[piece.start + norm_idx],
+            Original => &self.original[piece.start + norm_idx],
+        }
     }
 }
 
@@ -608,7 +613,7 @@ fn push_all_at<T>(v: &mut Vec<T>, offset: usize, s: &[T]) where T: Copy {
 impl<'a, T> Default for PieceTable<'a, T> {
     fn default() -> PieceTable<'a, T> {
         PieceTable {
-            original: None,
+            original: &[],
             adds: Vec::new(),
             pieces: Vec::new(),
             last_idx: 0,
