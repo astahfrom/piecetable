@@ -15,8 +15,6 @@ const CLUSTER_RATIO: usize = 10; // Don't want to allocate needlessly
 
 // Note: These also implicitly test the iterator.
 
-// TODO: These shrink poorly
-
 fn run_commands<T: Copy>(table: &mut PieceTable<T>, vec: &mut Vec<T>, commands: &[Command<T>]) {
     for &cmd in commands {
         match cmd {

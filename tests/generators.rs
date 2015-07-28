@@ -9,8 +9,6 @@ use std::collections::Bound;
 use self::rand::{Rng, SeedableRng, StdRng};
 use self::quickcheck::{Arbitrary, Gen, StdGen};
 
-// TODO: These shrink poorly
-
 #[allow(dead_code)]
 pub fn make_recipe<T>(seed: &[usize], size: usize) -> T
     where T: Send + Clone + Arbitrary

@@ -14,8 +14,6 @@ use generators::*;
 use test::Bencher;
 use piecetable::PieceTable;
 
-// TODO: traits could remove some duplication
-
 const SEED: &'static [usize] = &[1, 2, 3, 4];
 const SIZE: usize = 1_000;
 const VALUE: i32 = 42;
@@ -143,7 +141,6 @@ fn empty_insert_remove_clustered_vec(b: &mut Bencher) {
 
 fn run_benchmark_fresh_table(b: &mut Bencher, src: &[i32], commands: &[Command<i32>], capacity: usize) {
     b.iter(|| {
-        // TODO: Allocating same for both isn't really necessary
         let mut table = PieceTable::with_capacity(capacity, capacity).src(src);
         run_commands_table(&mut table, commands);
     })
