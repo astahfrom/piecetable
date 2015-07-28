@@ -36,7 +36,7 @@ fn table_slice_equal<T: PartialEq>(table: &PieceTable<T>, slice: &[T]) -> bool {
     let slice_vec = slice.iter().collect::<Vec<&T>>();
     let table_vec = table.iter().collect::<Vec<&T>>();
 
-    slice_vec == table_vec
+    slice_vec == table_vec && slice.len() == table.len()
 }
 
 fn test_commands<T>(table: &mut PieceTable<T>,
@@ -117,7 +117,7 @@ fn insert_linear_then_remove() {
     let mut table = PieceTable::new();
 
     table.insert(0, 1);
-    table.insert(1, 2);
+    table.push(2);
     table.insert(2, 3);
 
     table.insert(1, 27);
@@ -208,7 +208,6 @@ fn from_iter(vec: Vec<i32>) -> bool {
 
     let table: PieceTable<_> = FromIterator::from_iter(vec.iter());
     let expected: Vec<_> = FromIterator::from_iter(vec.iter());
-
 
     table_slice_equal(&table, &expected)
 }

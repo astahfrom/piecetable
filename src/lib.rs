@@ -469,6 +469,11 @@ impl<'a, T: 'a> PieceTable<'a, T> {
                 buffer: Add,
             });
         }
+
+        self.last_idx = self.length;
+        self.length += 1;
+        self.reusable_insert = Some((self.pieces.len()-1, true));
+        self.reusable_remove = None;
     }
 
     fn idx_to_location(&self, idx: usize) -> Location {
@@ -544,6 +549,8 @@ impl<'a, T> std::iter::FromIterator<T> for PieceTable<'a, T> {
             buffer: Add,
         }];
 
+        table.length = table.adds.len();
+
         table
     }
 }
@@ -559,6 +566,8 @@ impl<'a, T> std::iter::Extend<T> for PieceTable<'a, T> {
             length: length,
             buffer: Add,
         });
+
+        self.length += length;
     }
 }
 
