@@ -1,4 +1,4 @@
-PieceTable [![Build Status](https://travis-ci.org/andreasfrom/piecetable.svg?branch=master)](https://travis-ci.org/andreasfrom/piecetable)
+PieceTable [![Build Status](https://travis-ci.org/andreasfrom/piecetable.svg?branch=master)](https://travis-ci.org/andreasfrom/piecetable) [![Coverage Status](https://coveralls.io/repos/andreasfrom/piecetable/badge.svg?branch=master&service=github)](https://coveralls.io/github/andreasfrom/piecetable?branch=master)
 ----------
 [Documentation](http://andreasfrom.github.io/piecetable/)
 
