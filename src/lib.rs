@@ -153,6 +153,7 @@ impl<'a, T: 'a> PieceTable<'a, T> {
         self.original = &[];
         self.adds.clear();
         self.pieces.clear();
+        self.length = 0;
     }
 
     fn make_iter(&'a self, idx: usize) -> Iter<'a, T> {
