@@ -8,6 +8,9 @@ Based on [this paper](https://www.cs.unm.edu/~crowley/papers/sds.pdf).
 
 Tested with the excellent [quickcheck](https://github.com/BurntSushi/quickcheck), whose generators are also used for benchmarks (with a fixed seed).
 
+**Note**: This library is not maintained or properly tested.
+I recommend forking it or writing a piece table from scratch if you need one.
+
 # Benchmarks
 
 Compared with the standard Vec(tor):
